@@ -1,0 +1,303 @@
+/**
+ * api.ts — HTTP client và Auth helpers.
+ *
+ * Token strategy:
+ *   - Access token: lưu trong bộ nhớ JS (module-level var).
+ *                   KHÔNG dùng localStorage → không bị XSS đọc.
+ *   - Refresh token: httpOnly cookie set bởi backend.
+ *                    Không đọc được từ JS.
+ *
+ * Silent refresh:
+ *   Khi nhận 401, interceptor tự gọi POST /auth/refresh (cookie gửi tự động).
+ *   Nếu thành công → cập nhật access token trong memory + retry request gốc.
+ *   Nếu thất bại   → redirect về /login.
+ */
+
+import axios from "axios";
+import type { EncryptionMetadata, ChunkedEncryptionMetadata } from "./crypto";
+
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8080";
+
+// ── In-memory access token ────────────────────────────────────────────────────
+// Không export trực tiếp — dùng setAccessToken / getAccessToken
+let _accessToken: string | null = null;
+
+export function setAccessToken(token: string | null): void {
+  _accessToken = token;
+}
+
+export function getAccessToken(): string | null {
+  return _accessToken;
+}
+
+// ── Axios instance ────────────────────────────────────────────────────────────
+
+export const api = axios.create({
+  baseURL: BASE_URL,
+  timeout: 300_000,
+  withCredentials: true,  // gửi httpOnly cookie kèm mọi request (cho /auth/refresh)
+});
+
+// ── Silent refresh state ──────────────────────────────────────────────────────
+
+let _isRefreshing = false;
+// Queue các request bị 401 để retry sau khi refresh thành công
+let _waitQueue: Array<(token: string) => void> = [];
+
+function _drainQueue(newToken: string) {
+  _waitQueue.forEach((resolve) => resolve(newToken));
+  _waitQueue = [];
+}
+
+function _failQueue() {
+  _waitQueue.forEach(() => {});
+  _waitQueue = [];
+}
+
+// ── Request interceptor: đính kèm access token ────────────────────────────────
+
+api.interceptors.request.use((config) => {
+  if (_accessToken) {
+    config.headers.Authorization = `Bearer ${_accessToken}`;
+  }
+  return config;
+});
+
+// ── Response interceptor: silent refresh on 401 ───────────────────────────────
+
+api.interceptors.response.use(
+  (res) => res,
+  async (err) => {
+    const original = err.config;
+
+    // Chỉ retry 1 lần; bỏ qua nếu chính là call /auth/refresh (tránh loop)
+    if (
+      err.response?.status !== 401 ||
+      original._retried ||
+      original.url?.includes("/auth/refresh")
+    ) {
+      return Promise.reject(err);
+    }
+
+    original._retried = true;
+
+    if (_isRefreshing) {
+      // Có refresh đang chạy → xếp hàng
+      return new Promise<string>((resolve) => {
+        _waitQueue.push(resolve);
+      }).then((token) => {
+        original.headers.Authorization = `Bearer ${token}`;
+        return api(original);
+      });
+    }
+
+    _isRefreshing = true;
+
+    try {
+      const res = await authApi.refresh();
+      const newToken = res.access_token;
+      setAccessToken(newToken);
+      _drainQueue(newToken);
+      original.headers.Authorization = `Bearer ${newToken}`;
+      return api(original);
+    } catch {
+      setAccessToken(null);
+      _failQueue();
+      window.location.href = "/login";
+      return Promise.reject(err);
+    } finally {
+      _isRefreshing = false;
+    }
+  }
+);
+
+// ── Auth API ──────────────────────────────────────────────────────────────────
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  role: string;
+}
+
+/**
+ * authApi dùng axios trực tiếp (không qua `api` instance) để tránh interceptor loop.
+ * withCredentials: true đảm bảo cookie được gửi/nhận.
+ */
+export const authApi = {
+  async register(
+    email: string,
+    password: string,
+    display_name?: string
+  ): Promise<TokenResponse> {
+    const res = await axios.post<TokenResponse>(
+      `${BASE_URL}/auth/register`,
+      { email, password, display_name },
+      { withCredentials: true }
+    );
+    return res.data;
+  },
+
+  async login(email: string, password: string): Promise<TokenResponse> {
+    const res = await axios.post<TokenResponse>(
+      `${BASE_URL}/auth/login`,
+      { email, password },
+      { withCredentials: true }
+    );
+    return res.data;
+  },
+
+  async refresh(): Promise<TokenResponse> {
+    const res = await axios.post<TokenResponse>(
+      `${BASE_URL}/auth/refresh`,
+      {},
+      { withCredentials: true }
+    );
+    return res.data;
+  },
+
+  async logout(): Promise<void> {
+    await axios
+      .post(`${BASE_URL}/auth/logout`, {}, { withCredentials: true })
+      .catch(() => {
+        // Best-effort: không fail nếu đã logout / network error
+      });
+  },
+};
+
+// ── Upload API ────────────────────────────────────────────────────────────────
+
+export interface UploadResponse {
+  sas_url: string;
+  blob_name: string;
+  expires_at: string;
+}
+
+export interface UserKeys {
+  user_id: string;
+  public_key_x25519: string;
+  public_key_ed25519: string;
+}
+
+export interface MultipartInitResponse {
+  blob_name: string;
+  upload_id: string;
+}
+
+export default api;
+
+/** Upload ciphertext + metadata lên backend (single-shot, dành cho file nhỏ) */
+export async function uploadEncryptedFile(
+  ciphertext: Uint8Array,
+  metadata: EncryptionMetadata,
+  fileName: string,
+  onProgress?: (percent: number) => void
+): Promise<UploadResponse> {
+  const formData = new FormData();
+  const blob = new Blob([new Uint8Array(ciphertext)], {
+    type: "application/octet-stream",
+  });
+  formData.append("file", blob, fileName + ".enc");
+  formData.append("metadata_json", JSON.stringify(metadata));
+
+  const response = await api.post<UploadResponse>("/upload", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    onUploadProgress: onProgress
+      ? (e) =>
+          onProgress(e.total ? Math.round((e.loaded / e.total) * 100) : 0)
+      : undefined,
+  });
+  return response.data;
+}
+
+// ─── Multipart Upload ─────────────────────────────────────────────────────────
+
+export async function initMultipartUpload(
+  fileName: string
+): Promise<MultipartInitResponse> {
+  const formData = new FormData();
+  formData.append("filename", fileName);
+  const response = await api.post<MultipartInitResponse>(
+    "/upload/multipart/init",
+    formData
+  );
+  return response.data;
+}
+
+export async function uploadChunk(
+  blobName: string,
+  chunkIndex: number,
+  chunkData: Uint8Array,
+  onProgress?: (percent: number) => void
+): Promise<void> {
+  const formData = new FormData();
+  const blob = new Blob([chunkData.buffer as ArrayBuffer], {
+    type: "application/octet-stream",
+  });
+  formData.append("chunk", blob, `chunk_${chunkIndex}`);
+
+  await api.put(
+    `/upload/multipart/${encodeURIComponent(blobName)}/chunk/${chunkIndex}`,
+    formData,
+    {
+      headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress: onProgress
+        ? (e) =>
+            onProgress(e.total ? Math.round((e.loaded / e.total) * 100) : 0)
+        : undefined,
+    }
+  );
+}
+
+export async function finalizeMultipartUpload(
+  blobName: string,
+  chunkCount: number,
+  metadata: ChunkedEncryptionMetadata
+): Promise<UploadResponse> {
+  const response = await api.post<UploadResponse>(
+    `/upload/multipart/${encodeURIComponent(blobName)}/finalize`,
+    {
+      chunk_count: chunkCount,
+      metadata_json: JSON.stringify(metadata),
+    }
+  );
+  return response.data;
+}
+
+/** Tải ciphertext từ SAS URL (trực tiếp từ Azure) */
+export async function downloadCiphertext(sasUrl: string): Promise<{
+  ciphertext: Uint8Array;
+  metadata: EncryptionMetadata;
+}> {
+  const response = await axios.get(sasUrl, { responseType: "arraybuffer" });
+  const metadataHeader =
+    response.headers["x-ms-meta-encryption_metadata"];
+  if (!metadataHeader) {
+    throw new Error("Không tìm thấy metadata mã hóa trong blob.");
+  }
+  const metadata: EncryptionMetadata = JSON.parse(
+    decodeURIComponent(metadataHeader)
+  );
+  const ciphertext = new Uint8Array(response.data);
+  return { ciphertext, metadata };
+}
+
+export async function getRecipientKeys(userId: string): Promise<UserKeys> {
+  const response = await api.get<UserKeys>(`/keys/${userId}`);
+  return response.data;
+}
+
+export async function storeMyPublicKeys(
+  userId: string,
+  publicKeyX25519: string,
+  publicKeyEd25519: string
+): Promise<void> {
+  await api.post("/keys", {
+    user_id: userId,
+    public_key_x25519: publicKeyX25519,
+    public_key_ed25519: publicKeyEd25519,
+  });
+}
