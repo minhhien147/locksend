@@ -1,13 +1,16 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { LockSendLogoHero, LockSendMark } from "../components/LockSendLogo";
+import FloatingCryptoIcons from "../components/FloatingCryptoIcons";
+import { LoadingSpinner } from "../components/LoadingSpinner";
 
 export default function RegisterPage() {
   const { register, isLoading } = useAuth();
   const navigate = useNavigate();
 
   const [displayName, setDisplayName] = useState("");
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -15,12 +18,12 @@ export default function RegisterPage() {
 
   const passwordStrength = (p: string): { label: string; color: string; width: string } => {
     if (p.length === 0) return { label: "", color: "", width: "0%" };
-    if (p.length < 8) return { label: "Quá ngắn", color: "bg-red-400", width: "25%" };
+    if (p.length < 8) return { label: "Quá ngắn", color: "bg-rose-500", width: "25%" };
     if (!/[A-Z]/.test(p) || !/[0-9]/.test(p))
-      return { label: "Trung bình", color: "bg-yellow-400", width: "60%" };
+      return { label: "Trung bình", color: "bg-amber-500", width: "60%" };
     if (p.length >= 12 && /[^A-Za-z0-9]/.test(p))
-      return { label: "Mạnh", color: "bg-green-500", width: "100%" };
-    return { label: "Khá tốt", color: "bg-blue-400", width: "80%" };
+      return { label: "Mạnh", color: "bg-emerald-500", width: "100%" };
+    return { label: "Khá tốt", color: "bg-blue-500", width: "80%" };
   };
 
   const strength = passwordStrength(password);
@@ -39,7 +42,7 @@ export default function RegisterPage() {
     }
 
     try {
-      await register(email, password, displayName || undefined);
+      await register(username, password, displayName || undefined);
       navigate("/", { replace: true });
     } catch (err: unknown) {
       const msg =
@@ -50,36 +53,67 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-slate-100 flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-600 shadow-lg mb-4">
-            <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900">Tạo tài khoản</h1>
-          <p className="text-sm text-gray-500 mt-1">SecureShare · Client-side Encryption</p>
+    <div className="min-h-screen flex bg-[#0b0d12]">
+      <div className="hidden lg:flex lg:w-[48%] xl:w-[44%] flex-col justify-between min-h-screen p-10 xl:p-14 bg-gradient-to-b from-[#141829] to-[#0b0d12] border-r border-white/[0.04] relative overflow-hidden">
+        <div className="absolute inset-0 pointer-events-none opacity-90">
+          <div className="absolute top-0 right-0 w-[420px] h-[420px] rounded-full bg-indigo-600/[0.07] blur-[100px]" />
+          <div className="absolute bottom-0 left-0 w-[320px] h-[320px] rounded-full bg-violet-600/[0.06] blur-[90px]" />
         </div>
 
-        {/* Card */}
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8">
-          {error && (
-            <div className="mb-5 flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
-              <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-              <span>{error}</span>
-            </div>
-          )}
+        <FloatingCryptoIcons containerClassName="absolute inset-0 pointer-events-none overflow-hidden" />
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Display Name */}
+        <div className="relative">
+          <LockSendLogoHero />
+        </div>
+
+        <div className="relative max-w-md">
+          <h2 className="text-3xl xl:text-4xl font-bold text-white leading-[1.15] tracking-tight">
+            Bảo mật
+            <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-400">
+              từ đầu đến cuối.
+            </span>
+          </h2>
+        </div>
+
+        <div className="relative">
+          <p className="text-[11px] text-white/25">FPT University · Information Security</p>
+        </div>
+      </div>
+
+      <div className="flex-1 flex items-center justify-center p-6 sm:p-10 bg-[#0b0d12] relative overflow-hidden">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-[-15%] right-[-10%] w-[500px] h-[500px] rounded-full bg-indigo-600/[0.12] blur-[110px]" />
+          <div className="absolute bottom-[-10%] left-[-10%] w-[400px] h-[400px] rounded-full bg-violet-700/[0.10] blur-[100px]" />
+          <div className="absolute top-[40%] left-[20%] w-[260px] h-[260px] rounded-full bg-sky-600/[0.06] blur-[80px]" />
+        </div>
+        <div className="w-full max-w-[400px] space-y-7">
+          <div className="flex items-center gap-3 lg:hidden">
+            <LockSendMark className="h-8 w-auto" />
+            <span className="font-semibold text-white">
+              Lock<span className="text-indigo-400">Send</span>
+            </span>
+          </div>
+
+          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 sm:p-9 space-y-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Tên hiển thị <span className="text-gray-400 font-normal">(tuỳ chọn)</span>
+              <h1 className="text-xl font-semibold text-white">Tạo tài khoản</h1>
+              <p className="mt-1 text-sm text-white/35">Miễn phí · không quảng cáo</p>
+            </div>
+
+            {error && (
+              <div className="flex items-center gap-2.5 bg-rose-500/[0.08] border border-rose-500/20 rounded-lg px-3.5 py-2.5 text-sm text-rose-400/95">
+                <svg className="w-4 h-4 shrink-0 opacity-90" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-[12px] font-medium text-white/45">
+                Tên hiển thị <span className="text-white/25">(tuỳ chọn)</span>
               </label>
               <input
                 type="text"
@@ -88,35 +122,27 @@ export default function RegisterPage() {
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder="Nguyễn Văn A"
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-300 text-sm
-                           focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
-                           placeholder:text-gray-400 transition"
+                className="w-full bg-[#12141c] border border-white/[0.08] rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-white/25
+                           focus:outline-none focus:ring-1 focus:ring-indigo-500/60 focus:border-indigo-500/40 transition"
               />
             </div>
 
-            {/* Email */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Email <span className="text-red-400">*</span>
-              </label>
+            <div className="space-y-1.5">
+              <label className="text-[12px] font-medium text-white/45">Tên đăng nhập <span className="text-rose-400">*</span></label>
               <input
-                type="email"
+                type="text"
                 required
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-300 text-sm
-                           focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
-                           placeholder:text-gray-400 transition"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="john_doe (3–50 ký tự, không dấu)"
+                className="w-full bg-[#12141c] border border-white/[0.08] rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-white/25
+                           focus:outline-none focus:ring-1 focus:ring-indigo-500/60 focus:border-indigo-500/40 transition"
               />
             </div>
 
-            {/* Password */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Mật khẩu <span className="text-red-400">*</span>
-              </label>
+            <div className="space-y-1.5">
+              <label className="text-[12px] font-medium text-white/45">Mật khẩu <span className="text-rose-400">*</span></label>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
@@ -125,50 +151,38 @@ export default function RegisterPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Tối thiểu 8 ký tự"
-                  className="w-full px-4 py-2.5 pr-11 rounded-xl border border-gray-300 text-sm
-                             focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
-                             placeholder:text-gray-400 transition"
+                  className="w-full bg-[#12141c] border border-white/[0.08] rounded-lg px-3.5 py-2.5 pr-10 text-sm text-white placeholder:text-white/25
+                             focus:outline-none focus:ring-1 focus:ring-indigo-500/60 focus:border-indigo-500/40 transition"
                 />
                 <button
                   type="button"
                   tabIndex={-1}
                   onClick={() => setShowPassword((p) => !p)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-white/30 hover:text-white/55 transition"
                 >
-                  {showPassword ? (
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                        d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                    </svg>
-                  ) : (
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                  )}
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    {showPassword
+                      ? <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                      : <>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </>
+                    }
+                  </svg>
                 </button>
               </div>
-              {/* Password strength bar */}
               {password.length > 0 && (
-                <div className="mt-2">
-                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-300 ${strength.color}`}
-                      style={{ width: strength.width }}
-                    />
+                <div className="mt-1.5 space-y-1">
+                  <div className="h-1 bg-white/[0.08] rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full transition-all duration-300 ${strength.color}`} style={{ width: strength.width }} />
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">{strength.label}</p>
+                  <p className="text-[11px] text-white/40">{strength.label}</p>
                 </div>
               )}
             </div>
 
-            {/* Confirm Password */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Xác nhận mật khẩu <span className="text-red-400">*</span>
-              </label>
+            <div className="space-y-1.5">
+              <label className="text-[12px] font-medium text-white/45">Xác nhận mật khẩu <span className="text-rose-400">*</span></label>
               <input
                 type={showPassword ? "text" : "password"}
                 required
@@ -176,49 +190,39 @@ export default function RegisterPage() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Nhập lại mật khẩu"
-                className={`w-full px-4 py-2.5 rounded-xl border text-sm transition
-                            focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
-                            placeholder:text-gray-400
+                className={`w-full bg-[#12141c] rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-white/25
+                            focus:outline-none focus:ring-1 transition border
                             ${confirmPassword && confirmPassword !== password
-                              ? "border-red-300 bg-red-50"
+                              ? "border-rose-500/50 focus:ring-rose-500/30"
                               : confirmPassword && confirmPassword === password
-                              ? "border-green-300 bg-green-50"
-                              : "border-gray-300"}`}
+                              ? "border-emerald-500/50 focus:ring-emerald-500/30"
+                              : "border-white/[0.08] focus:ring-indigo-500/60 focus:border-indigo-500/40"
+                            }`}
               />
               {confirmPassword && confirmPassword !== password && (
-                <p className="text-xs text-red-500 mt-1">Mật khẩu không khớp</p>
+                <p className="text-[11px] text-rose-400 mt-1">Mật khẩu không khớp</p>
               )}
             </div>
 
-            {/* Submit */}
             <button
               type="submit"
               disabled={isLoading || password !== confirmPassword}
-              className="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700
-                         disabled:bg-indigo-300 disabled:cursor-not-allowed
-                         text-white text-sm font-semibold transition flex items-center justify-center gap-2"
+              className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition
+                         disabled:opacity-45 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-1"
             >
-              {isLoading && (
-                <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-              )}
+              {isLoading && <LoadingSpinner size="sm" />}
               {isLoading ? "Đang tạo tài khoản..." : "Tạo tài khoản"}
             </button>
-          </form>
+            </form>
 
-          <p className="mt-6 text-center text-sm text-gray-500">
-            Đã có tài khoản?{" "}
-            <Link to="/login" className="text-indigo-600 font-medium hover:underline">
-              Đăng nhập
-            </Link>
-          </p>
+            <p className="text-center text-[13px] text-white/28 pt-1">
+              Đã có tài khoản?{" "}
+              <Link to="/login" className="text-indigo-400/90 hover:text-indigo-300 font-medium">
+                Đăng nhập
+              </Link>
+            </p>
+          </div>
         </div>
-
-        <p className="text-center text-xs text-gray-400 mt-6">
-          Mật khẩu được hash với bcrypt · JWT HS256
-        </p>
       </div>
     </div>
   );

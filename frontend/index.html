@@ -1,13 +1,154 @@
 <!doctype html>
-<html lang="en">
+<html lang="vi">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="/locksend-mark.png" sizes="any" />
+    <link rel="apple-touch-icon" href="/locksend-logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SecureShare — FPT University</title>
+    <meta name="theme-color" content="#0b0d12" />
+    <title>LockSend</title>
+    <style>
+      #app-preloader {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.75rem;
+        padding: 1.5rem;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        background-color: #0b0d12;
+        background-image:
+          radial-gradient(ellipse 80% 55% at 85% 10%, rgba(79, 70, 229, 0.14), transparent 55%),
+          radial-gradient(ellipse 70% 50% at 15% 90%, rgba(124, 58, 237, 0.1), transparent 50%),
+          radial-gradient(ellipse 50% 40% at 50% 50%, rgba(14, 165, 233, 0.04), transparent 60%);
+        color: #fff;
+        transition: opacity 0.45s ease, transform 0.45s ease;
+      }
+      #app-preloader.preloader--exiting {
+        opacity: 0;
+        transform: scale(1.02);
+        pointer-events: none;
+      }
+      .preloader__logo-wrap {
+        position: relative;
+        width: 4.5rem;
+        height: 4.5rem;
+        border-radius: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(99, 102, 241, 0.08);
+        border: 1px solid rgba(129, 140, 248, 0.18);
+        box-shadow: 0 0 40px rgba(99, 102, 241, 0.12);
+      }
+      .preloader__logo-wrap img {
+        width: 2.25rem;
+        height: auto;
+        display: block;
+        animation: preloader-pulse 2s ease-in-out infinite;
+      }
+      @keyframes preloader-pulse {
+        0%, 100% { opacity: 0.85; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.04); }
+      }
+      .preloader__brand {
+        font-size: 0.8125rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.28);
+      }
+      .preloader__brand span {
+        color: #a5b4fc;
+      }
+      #preloader-pct {
+        font-size: clamp(2.75rem, 10vw, 4rem);
+        font-weight: 700;
+        letter-spacing: -0.04em;
+        line-height: 1;
+        background: linear-gradient(105deg, #f1f5f9 0%, #a5b4fc 42%, #c4b5fd 78%, #818cf8 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        font-variant-numeric: tabular-nums;
+      }
+      .preloader__bar-track {
+        width: min(18rem, 86vw);
+        height: 3px;
+        border-radius: 9999px;
+        background: rgba(255, 255, 255, 0.06);
+        overflow: hidden;
+      }
+      #preloader-bar-fill {
+        height: 100%;
+        width: 0%;
+        border-radius: 9999px;
+        background: linear-gradient(90deg, #6366f1, #8b5cf6, #38bdf8);
+        box-shadow: 0 0 12px rgba(99, 102, 241, 0.45);
+        transition: width 0.12s ease-out;
+      }
+      .preloader__tagline {
+        max-width: 20rem;
+        text-align: center;
+        font-size: 0.8125rem;
+        line-height: 1.5;
+        color: rgba(255, 255, 255, 0.32);
+      }
+    </style>
   </head>
   <body>
+    <div id="app-preloader" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Đang tải LockSend">
+      <div class="preloader__logo-wrap">
+        <img src="/locksend-mark.png" alt="" width="36" height="36" decoding="async" />
+      </div>
+      <p class="preloader__brand">Lock<span>Send</span></p>
+      <div id="preloader-pct">0%</div>
+      <div class="preloader__bar-track">
+        <div id="preloader-bar-fill"></div>
+      </div>
+      <p class="preloader__tagline">Mã hóa phía client · Máy chủ không giữ khóa giải mã của bạn</p>
+    </div>
     <div id="root"></div>
+    <script>
+      (function () {
+        var root = document.getElementById("app-preloader");
+        var pctEl = document.getElementById("preloader-pct");
+        var barEl = document.getElementById("preloader-bar-fill");
+        var started = Date.now();
+        var p = 0;
+        var timer = setInterval(function () {
+          var elapsed = (Date.now() - started) / 2000;
+          p = Math.min(92, 100 * (1 - Math.exp(-2.5 * elapsed)));
+          var n = Math.floor(p);
+          if (pctEl) pctEl.textContent = n + "%";
+          if (barEl) barEl.style.width = p + "%";
+          if (root) root.setAttribute("aria-valuenow", String(n));
+        }, 40);
+        window.locksendFinishPreloader = function () {
+          if (window.__locksendPreloaderFinished) return;
+          window.__locksendPreloaderFinished = true;
+          var done = function () {
+            clearInterval(timer);
+            p = 100;
+            if (pctEl) pctEl.textContent = "100%";
+            if (barEl) barEl.style.width = "100%";
+            if (root) {
+              root.setAttribute("aria-valuenow", "100");
+              root.classList.add("preloader--exiting");
+              setTimeout(function () {
+                if (root && root.parentNode) root.parentNode.removeChild(root);
+              }, 480);
+            }
+          };
+          var minMs = 2000;
+          var wait = Math.max(0, minMs - (Date.now() - started));
+          setTimeout(done, wait);
+        };
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

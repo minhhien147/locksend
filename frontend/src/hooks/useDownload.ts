@@ -7,7 +7,8 @@ import {
   type ChunkedEncryptionMetadata,
   type EncryptionMetadata,
 } from "../utils/crypto";
-import { downloadCiphertext } from "../utils/api";
+import { downloadCiphertext, recordDownloadLog } from "../utils/api";
+import { saveDownloadEntry } from "../utils/downloadHistory";
 
 export type DownloadStage =
   | "idle"
@@ -75,7 +76,8 @@ export function useDownload(): UseDownloadReturn {
     });
 
     try {
-      const { ciphertext, metadata } = await downloadCiphertext(sasUrl.trim());
+      const { ciphertext, metadata, serverFileId } =
+        await downloadCiphertext(sasUrl.trim());
 
       setState((prev) => ({
         ...prev,
@@ -110,13 +112,30 @@ export function useDownload(): UseDownloadReturn {
         );
       }
 
+      const isChunked = (metadata as ChunkedEncryptionMetadata).isChunked ?? false;
       downloadBlob(plaintext, metadata.fileName, metadata.mimeType);
+
+      saveDownloadEntry({
+        sasUrl: sasUrl.trim(),
+        fileName: metadata.fileName,
+        mimeType: metadata.mimeType,
+        fileSizeBytes: plaintext.byteLength,
+        checksum: metadata.plaintextChecksum ?? undefined,
+        isChunked,
+        serverFileId: serverFileId ?? undefined,
+      });
+
+      void recordDownloadLog({
+        sasUrl: sasUrl.trim(),
+        serverFileId,
+      });
+
       setState({
         stage: "done",
         error: "",
         fileName: metadata.fileName,
         chunkProgress: null,
-        isChunkedFile: (metadata as ChunkedEncryptionMetadata).isChunked ?? false,
+        isChunkedFile: isChunked,
         verifiedMeta: metadata,
       });
     } catch (e) {

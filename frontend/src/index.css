@@ -1,1 +1,31 @@
 @import "tailwindcss";
+
+/* ── Floating icons orbit ─────────────────────────────────────────── */
+
+@keyframes orbit-1 {
+  0%   { transform: translate(0px,   0px)   rotate(-8deg);  }
+  25%  { transform: translate(40px, -50px)  rotate(4deg);   }
+  50%  { transform: translate(80px,  10px)  rotate(14deg);  }
+  75%  { transform: translate(30px,  55px)  rotate(-4deg);  }
+  100% { transform: translate(0px,   0px)   rotate(-8deg);  }
+}
+
+@keyframes orbit-2 {
+  0%   { transform: translate(0px,   0px)   rotate(6deg);   }
+  25%  { transform: translate(-50px, 40px)  rotate(-6deg);  }
+  50%  { transform: translate(-20px, 80px)  rotate(16deg);  }
+  75%  { transform: translate(45px,  30px)  rotate(2deg);   }
+  100% { transform: translate(0px,   0px)   rotate(6deg);   }
+}
+
+@keyframes orbit-3 {
+  0%   { transform: translate(0px,   0px)   rotate(12deg);  }
+  20%  { transform: translate(-60px,-30px)  rotate(-5deg);  }
+  45%  { transform: translate(-30px,-70px)  rotate(18deg);  }
+  70%  { transform: translate(50px, -40px)  rotate(6deg);   }
+  100% { transform: translate(0px,   0px)   rotate(12deg);  }
+}
+
+.animate-orbit-1 { animation: orbit-1 9s  ease-in-out infinite; }
+.animate-orbit-2 { animation: orbit-2 12s ease-in-out infinite 2s; }
+.animate-orbit-3 { animation: orbit-3 10s ease-in-out infinite 4s; }

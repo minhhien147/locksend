@@ -23,3 +23,6 @@ __pycache__/
 # Logs
 *.log
 
+# Azure — cấu hình local khi chạy setup (mỗi thành viên tự tạo từ file .example)
+setup-azure.config.ps1
+

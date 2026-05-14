@@ -22,7 +22,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { authApi, setAccessToken } from "../utils/api";
+import { authApi, changePasswordApi, setAccessToken } from "../utils/api";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -37,9 +37,10 @@ interface AuthContextValue {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, displayName?: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
+  register: (username: string, password: string, displayName?: string) => Promise<void>;
   logout: () => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -75,8 +76,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ── Login ───────────────────────────────────────────────────────────────────
-  const login = useCallback(async (email: string, password: string) => {
-    const res = await authApi.login(email, password);
+  const login = useCallback(async (username: string, password: string) => {
+    const res = await authApi.login(username, password);
     setAccessToken(res.access_token);
     setUser({
       user_id: res.user_id,
@@ -88,8 +89,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ── Register ────────────────────────────────────────────────────────────────
   const register = useCallback(
-    async (email: string, password: string, displayName?: string) => {
-      const res = await authApi.register(email, password, displayName);
+    async (username: string, password: string, displayName?: string) => {
+      const res = await authApi.register(username, password, displayName);
       setAccessToken(res.access_token);
       setUser({
         user_id: res.user_id,
@@ -108,6 +109,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string) => {
+      const res = await changePasswordApi(currentPassword, newPassword);
+      setAccessToken(res.access_token);
+      setUser({
+        user_id: res.user_id,
+        email: res.email,
+        display_name: res.display_name,
+        role: res.role,
+      });
+    },
+    []
+  );
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -116,8 +131,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       register,
       logout,
+      changePassword,
     }),
-    [user, isLoading, login, register, logout]
+    [user, isLoading, login, register, logout, changePassword]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -8,3 +8,15 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </StrictMode>
 );
+
+function finishPreloader() {
+  const w = window as Window & { locksendFinishPreloader?: () => void };
+  if (typeof w.locksendFinishPreloader !== "function") return;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      w.locksendFinishPreloader!();
+    });
+  });
+}
+
+finishPreloader();

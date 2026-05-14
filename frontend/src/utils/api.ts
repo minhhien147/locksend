@@ -50,7 +50,8 @@ function _drainQueue(newToken: string) {
 }
 
 function _failQueue() {
-  _waitQueue.forEach(() => {});
+  // Chỉ xóa queue; các promise đang chờ sẽ tự được GC khi
+  // window.location.href = "/login" ngay sau đó khiến page navigate đi.
   _waitQueue = [];
 }
 
@@ -129,22 +130,22 @@ export interface TokenResponse {
  */
 export const authApi = {
   async register(
-    email: string,
+    username: string,
     password: string,
     display_name?: string
   ): Promise<TokenResponse> {
     const res = await axios.post<TokenResponse>(
       `${BASE_URL}/auth/register`,
-      { email, password, display_name },
+      { username, password, display_name },
       { withCredentials: true }
     );
     return res.data;
   },
 
-  async login(email: string, password: string): Promise<TokenResponse> {
+  async login(username: string, password: string): Promise<TokenResponse> {
     const res = await axios.post<TokenResponse>(
       `${BASE_URL}/auth/login`,
-      { email, password },
+      { username, password },
       { withCredentials: true }
     );
     return res.data;
@@ -168,12 +169,25 @@ export const authApi = {
   },
 };
 
+/** Đổi mật khẩu (cần access token; dùng instance `api` để gửi Bearer). */
+export async function changePasswordApi(
+  current_password: string,
+  new_password: string
+): Promise<TokenResponse> {
+  const res = await api.post<TokenResponse>(
+    "/auth/change-password",
+    { current_password, new_password }
+  );
+  return res.data;
+}
+
 // ── Upload API ────────────────────────────────────────────────────────────────
 
 export interface UploadResponse {
   sas_url: string;
   blob_name: string;
   expires_at: string;
+  file_id?: string | null;
 }
 
 export interface UserKeys {
@@ -267,22 +281,78 @@ export async function finalizeMultipartUpload(
   return response.data;
 }
 
+/** Lấy blob path (không gồm container) từ SAS URL Azure Blob. */
+export function parseBlobNameFromSasUrl(sasUrl: string): string | null {
+  try {
+    const u = new URL(sasUrl.trim());
+    const segs = u.pathname.split("/").filter(Boolean);
+    if (segs.length < 2) return null;
+    return segs.slice(1).map((s) => decodeURIComponent(s)).join("/");
+  } catch {
+    return null;
+  }
+}
+
+function _headerCi(
+  headers: Record<string, unknown>,
+  nameLower: string
+): string | undefined {
+  for (const [k, v] of Object.entries(headers)) {
+    if (String(k).toLowerCase() === nameLower && v != null) {
+      return String(v);
+    }
+  }
+  return undefined;
+}
+
+/** Ghi download_logs trên server (best-effort, không throw). */
+export async function recordDownloadLog(params: {
+  sasUrl: string;
+  serverFileId?: string | null;
+}): Promise<void> {
+  const body: { file_id?: string; blob_name?: string } = {};
+  if (params.serverFileId) {
+    body.file_id = params.serverFileId;
+  } else {
+    const bn = parseBlobNameFromSasUrl(params.sasUrl);
+    if (bn) body.blob_name = bn;
+  }
+  if (!body.file_id && !body.blob_name) return;
+  try {
+    await api.post("/files/download-log", body);
+  } catch {
+    // không làm fail luồng tải file
+  }
+}
+
 /** Tải ciphertext từ SAS URL (trực tiếp từ Azure) */
 export async function downloadCiphertext(sasUrl: string): Promise<{
   ciphertext: Uint8Array;
   metadata: EncryptionMetadata;
+  serverFileId?: string;
 }> {
   const response = await axios.get(sasUrl, { responseType: "arraybuffer" });
-  const metadataHeader =
-    response.headers["x-ms-meta-encryption_metadata"];
-  if (!metadataHeader) {
+  const headers = response.headers as Record<string, unknown>;
+
+  // Thử key mới (base64-encoded, hỗ trợ Unicode) trước, fallback key cũ
+  const b64Header = _headerCi(headers, "x-ms-meta-encryption_metadata_b64");
+  const rawHeader = _headerCi(headers, "x-ms-meta-encryption_metadata");
+
+  let metadataJson: string | null = null;
+  if (b64Header) {
+    metadataJson = atob(b64Header);
+  } else if (rawHeader) {
+    metadataJson = decodeURIComponent(rawHeader);
+  }
+
+  if (!metadataJson) {
     throw new Error("Không tìm thấy metadata mã hóa trong blob.");
   }
-  const metadata: EncryptionMetadata = JSON.parse(
-    decodeURIComponent(metadataHeader)
-  );
+
+  const metadata: EncryptionMetadata = JSON.parse(metadataJson);
   const ciphertext = new Uint8Array(response.data);
-  return { ciphertext, metadata };
+  const serverFileId = _headerCi(headers, "x-ms-meta-file_id");
+  return { ciphertext, metadata, serverFileId };
 }
 
 export async function getRecipientKeys(userId: string): Promise<UserKeys> {
@@ -290,14 +360,36 @@ export async function getRecipientKeys(userId: string): Promise<UserKeys> {
   return response.data;
 }
 
-export async function storeMyPublicKeys(
-  userId: string,
-  publicKeyX25519: string,
-  publicKeyEd25519: string
-): Promise<void> {
-  await api.post("/keys", {
-    user_id: userId,
-    public_key_x25519: publicKeyX25519,
-    public_key_ed25519: publicKeyEd25519,
-  });
+// ── File History ──────────────────────────────────────────────────────────────
+
+export interface FileHistoryItem {
+  file_id: string;
+  blob_name: string;
+  original_filename: string;
+  content_type: string | null;
+  file_size_bytes: number;
+  encryption_alg: string;
+  chunk_count: number;
+  created_at: string;
+  updated_at: string;
 }
+
+export interface FreshSasResponse {
+  file_id: string;
+  blob_name: string;
+  sas_url: string;
+  expires_at: string;
+}
+
+/** Lấy danh sách file đã upload của user hiện tại */
+export async function getMyFiles(): Promise<FileHistoryItem[]> {
+  const res = await api.get<FileHistoryItem[]>("/files/my-files");
+  return res.data;
+}
+
+/** Tạo lại SAS URL mới cho file (khi link cũ hết hạn) */
+export async function refreshSasUrl(fileId: string): Promise<FreshSasResponse> {
+  const res = await api.get<FreshSasResponse>(`/files/${fileId}/sas`);
+  return res.data;
+}
+
