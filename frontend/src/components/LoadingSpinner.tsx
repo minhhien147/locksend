@@ -1,6 +1,4 @@
-/**
- * Trạng thái tải thống nhất — spinner vòng gradient + PageLoader toàn màn hình / khối nội dung.
- */
+/** Spinner thống nhất — một màu, không gradient. */
 
 type SpinnerSize = "xs" | "sm" | "md" | "lg";
 
@@ -24,10 +22,10 @@ export function LoadingSpinner({ size = "md", className = "", decorative = true 
       className={`relative inline-flex shrink-0 ${SPINNER_BOX[size]} ${className}`}
       {...(decorative ? { "aria-hidden": true as const } : {})}
     >
-      <div className="absolute inset-0 rounded-full border-white/[0.08]" />
+      <div className="absolute inset-0 rounded-full border-slate-200 dark:border-slate-700" />
       <div
-        className="absolute inset-0 animate-spin rounded-full border-transparent border-t-indigo-400 border-r-violet-400/90 motion-reduce:animate-none"
-        style={{ animationDuration: "0.85s" }}
+        className="absolute inset-0 animate-spin rounded-full border-transparent border-t-indigo-600 dark:border-t-indigo-400 motion-reduce:animate-none"
+        style={{ animationDuration: "0.75s" }}
       />
     </div>
   );
@@ -51,7 +49,7 @@ export default function PageLoader({
 }: PageLoaderProps) {
   const shell =
     variant === "fullscreen"
-      ? "min-h-screen flex flex-col items-center justify-center gap-6 bg-[#0b0d12] px-6"
+      ? "min-h-screen flex flex-col items-center justify-center gap-6 bg-[#e8eaef] dark:bg-[#0b0d12] px-6"
       : "flex flex-col items-center justify-center gap-4 py-16 sm:py-20";
 
   return (
@@ -63,20 +61,12 @@ export default function PageLoader({
     >
       <span className="sr-only">{title}</span>
       <div className="relative flex items-center justify-center">
-        <div
-          className="pointer-events-none absolute -inset-8 rounded-full bg-indigo-500/[0.12] blur-2xl motion-reduce:opacity-0"
-          aria-hidden
-        />
-        <div
-          className="pointer-events-none absolute -inset-3 rounded-full border border-indigo-500/10 motion-reduce:hidden"
-          aria-hidden
-        />
         <LoadingSpinner size="lg" />
       </div>
       <div className="max-w-sm text-center space-y-1.5">
-        <p className="text-sm font-medium tracking-tight text-white/80">{title}</p>
+        <p className="text-sm font-medium tracking-tight text-slate-800 dark:text-slate-200">{title}</p>
         {description ? (
-          <p className="text-xs leading-relaxed text-white/35">{description}</p>
+          <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">{description}</p>
         ) : null}
       </div>
     </div>

@@ -1,8 +1,33 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { CHUNKED_THRESHOLD, DEFAULT_CHUNK_SIZE, loadKeysFromStorage } from "../utils/crypto";
-import { useUpload, type ChunkProgress } from "../hooks/useUpload";
+import {
+  CHUNKED_THRESHOLD,
+  DEFAULT_CHUNK_SIZE,
+  loadKeysFromStorage,
+  hasKeysInStorage,
+  fromBase64,
+} from "../utils/crypto";
+import { useUpload, type ChunkProgress, type RecipientUser } from "../hooks/useUpload";
 import { LoadingSpinner } from "../components/LoadingSpinner";
+import KeyUnlockBanner from "../components/KeyUnlockBanner";
+import { searchUsers, getUserPublicKey, type UserSearchResult } from "../utils/api";
+import { syncPublicKeysToServer } from "../utils/keySync";
+import PageHeader from "../components/ui/PageHeader";
+import Card from "../components/ui/Card";
+import Button from "../components/ui/Button";
+import Alert from "../components/ui/Alert";
+import Badge from "../components/ui/Badge";
+import SegmentedControl from "../components/ui/SegmentedControl";
+import {
+  dropzone,
+  inputBase,
+  text,
+  label,
+  sectionTitle,
+  surfaceInset,
+  panel,
+  btn,
+} from "../styles/theme";
 
 const formatFileSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`;
@@ -13,19 +38,25 @@ const formatFileSize = (bytes: number): string => {
 
 const CHUNK_MB = DEFAULT_CHUNK_SIZE / (1024 * 1024);
 
-/** Cards / inputs aligned with App shell indigo–violet */
-const surfaceCard =
-  "rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-950/50 via-[#0c0e14]/95 to-violet-950/25 shadow-xl shadow-indigo-950/30";
-const inputBase =
-  "bg-[#12141c] border border-indigo-500/20 text-white placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-indigo-500/35 focus:border-indigo-400/50 transition disabled:opacity-50";
+type RecipientMode = "search" | "manual";
 
 export default function UploadPage() {
-  const hasKeys = !!loadKeysFromStorage();
+  const [keysReady, setKeysReady] = useState(() => !!loadKeysFromStorage());
+  const hasKeys = hasKeysInStorage();
+  const canUseKeys = keysReady;
   const [file, setFile] = useState<File | null>(null);
   const [recipientPublicKey, setRecipientPublicKey] = useState("");
+  const [recipientMode, setRecipientMode] = useState<RecipientMode>("search");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [selectedRecipients, setSelectedRecipients] = useState<RecipientUser[]>([]);
+  const [keyLoading, setKeyLoading] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const searchTimerRef = useRef<number | null>(null);
 
   const {
     stage,
@@ -34,11 +65,81 @@ export default function UploadPage() {
     chunkProgress,
     uploadPercent,
     plaintextChecksum,
+    recipientCount,
     isChunkedMode,
-    chunkCount,
     encryptAndUpload,
     reset,
   } = useUpload();
+
+  const onKeysUnlocked = () => {
+    setKeysReady(!!loadKeysFromStorage());
+    void syncPublicKeysToServer();
+  };
+
+  useEffect(() => {
+    if (searchTimerRef.current !== null) window.clearTimeout(searchTimerRef.current);
+    if (!searchQuery.trim() || searchQuery.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    searchTimerRef.current = window.setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const results = await searchUsers(searchQuery.trim());
+        setSearchResults(results);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 350);
+    return () => { if (searchTimerRef.current !== null) window.clearTimeout(searchTimerRef.current); };
+  }, [searchQuery]);
+
+  async function handleAddRecipient(user: UserSearchResult) {
+    if (selectedRecipients.some((r) => r.userId === user.id)) {
+      setKeyError("Người này đã có trong danh sách.");
+      return;
+    }
+    if (!user.has_public_key) {
+      setKeyError("Người dùng này chưa đăng ký public key lên server.");
+      return;
+    }
+    setKeyError(null);
+    setKeyLoading(true);
+    try {
+      const pk = await getUserPublicKey(user.id);
+      fromBase64(pk.public_key_x25519);
+      setSelectedRecipients((prev) => [
+        ...prev,
+        {
+          userId: user.id,
+          email: user.email,
+          displayName: user.display_name,
+          publicKeyX25519: pk.public_key_x25519,
+          keyVersion: pk.key_version,
+        },
+      ]);
+      setSearchQuery("");
+      setSearchResults([]);
+    } catch {
+      setKeyError("Không lấy được public key. Thử lại sau.");
+    } finally {
+      setKeyLoading(false);
+    }
+  }
+
+  function handleRemoveRecipient(userId: string) {
+    setSelectedRecipients((prev) => prev.filter((r) => r.userId !== userId));
+    setKeyError(null);
+  }
+
+  function handleClearRecipients() {
+    setSelectedRecipients([]);
+    setSearchQuery("");
+    setSearchResults([]);
+    setKeyError(null);
+  }
 
   function handleCopySasUrl() {
     navigator.clipboard.writeText(sasUrl);
@@ -50,6 +151,7 @@ export default function UploadPage() {
     setFile(null);
     setCopied(false);
     reset();
+    handleClearRecipients();
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -79,47 +181,39 @@ export default function UploadPage() {
           onCopy={handleCopySasUrl}
           onReset={handleReset}
           plaintextChecksum={plaintextChecksum}
+          recipientCount={recipientCount}
         />
       </div>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">Mã hóa & Upload</h1>
+    <div className="max-w-2xl mx-auto space-y-5">
+      <PageHeader
+        title="Mã hóa & Upload"
+        description="Chọn file, chỉ định người nhận, mã hóa client-side rồi upload lên Azure."
+      />
 
-        {/* Banner nhắc tạo key nếu chưa có */}
-        {!hasKeys && (
-          <div className="mt-4 flex items-center gap-3 bg-amber-500/10 border border-amber-500/25 rounded-xl px-4 py-3">
-            <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-            </svg>
-            <p className="text-sm text-amber-300/90">
-              Bạn chưa có keypair.{" "}
-              <Link to="/keys" className="font-semibold underline underline-offset-2 hover:text-amber-200 transition">
-                Vào trang Keys để tạo
-              </Link>{" "}
-              trước khi upload.
-            </p>
-          </div>
-        )}
-      </div>
+      {hasKeys && <KeyUnlockBanner onUnlocked={onKeysUnlocked} />}
 
-      {/* ── Drop zone ── */}
+      {!hasKeys && (
+        <Alert tone="warning">
+          Bạn chưa có keypair.{" "}
+          <Link to="/keys" className="font-medium text-indigo-600 dark:text-indigo-400 underline underline-offset-2">
+            Vào trang Keys để tạo
+          </Link>{" "}
+          trước khi upload.
+        </Alert>
+      )}
+
       <div
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onClick={() => !isBusy && fileInputRef.current?.click()}
-        className={`relative rounded-2xl border-2 border-dashed transition-all cursor-pointer p-10 text-center
-          ${dragging
-            ? "border-indigo-500 bg-indigo-500/10"
-            : file
-            ? "border-indigo-400/45 bg-indigo-950/35 hover:bg-indigo-950/45 shadow-lg shadow-indigo-950/20"
-            : "border-indigo-400/25 bg-gradient-to-b from-indigo-950/40 to-[#0a0c12]/95 hover:border-indigo-400/40 hover:from-indigo-950/50 shadow-lg shadow-black/30"
-          } ${isBusy ? "cursor-not-allowed" : ""}`}
+        className={`relative p-10 text-center transition-colors ${isBusy ? "cursor-not-allowed opacity-70" : "cursor-pointer"} ${
+          dragging ? dropzone.active : file ? dropzone.filled : dropzone.base
+        }`}
       >
         <input
           ref={fileInputRef}
@@ -130,121 +224,194 @@ export default function UploadPage() {
         />
 
         {file ? (
-          <div className="space-y-3">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-indigo-500/15 border border-indigo-500/20 flex items-center justify-center">
-              <svg className="w-7 h-7 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+          <div className="space-y-2">
+            <p className={`font-medium text-sm truncate max-w-xs mx-auto ${text.primary}`}>{file.name}</p>
+            <div className="flex items-center justify-center gap-2">
+              <span className={`text-xs ${text.muted}`}>{formatFileSize(file.size)}</span>
+              {isLargeFile && (
+                <Badge tone="warning">Chunked · {CHUNK_MB}MB/chunk</Badge>
+              )}
             </div>
-            <div>
-              <p className="font-semibold text-white text-sm truncate max-w-xs mx-auto">{file.name}</p>
-              <div className="flex items-center justify-center gap-2 mt-1">
-                <p className="text-xs text-white/40">{formatFileSize(file.size)}</p>
-                {isLargeFile && (
-                  <span className="text-[10px] bg-amber-500/15 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-medium">
-                    Chunked ({chunkCount} × {CHUNK_MB}MB)
-                  </span>
+            {!isBusy && <p className={`text-xs ${text.faint}`}>Nhấp để đổi file</p>}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <p className={`text-sm font-medium ${text.secondary}`}>Kéo thả file vào đây</p>
+            <p className={`text-xs ${text.muted}`}>hoặc nhấp để chọn · mọi định dạng</p>
+          </div>
+        )}
+      </div>
+
+      <Card className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <h2 className={sectionTitle}>Người nhận</h2>
+          <SegmentedControl
+            value={recipientMode}
+            onChange={setRecipientMode}
+            disabled={isBusy}
+            options={[
+              { value: "search", label: "Tìm user" },
+              { value: "manual", label: "Dán key" },
+            ]}
+          />
+        </div>
+
+        {recipientMode === "search" ? (
+          <div className="space-y-3">
+            {selectedRecipients.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className={`text-xs ${text.muted}`}>{selectedRecipients.length} người nhận</p>
+                  <button
+                    type="button"
+                    onClick={handleClearRecipients}
+                    disabled={isBusy}
+                    className={`text-xs ${text.muted} hover:text-rose-600 dark:hover:text-rose-400`}
+                  >
+                    Xóa tất cả
+                  </button>
+                </div>
+                <ul className="flex flex-wrap gap-2">
+                  {selectedRecipients.map((r) => (
+                    <li
+                      key={r.userId}
+                      className={`flex items-center gap-2 pl-3 pr-1 py-1.5 rounded-md text-sm ${surfaceInset}`}
+                    >
+                      <span className={`truncate max-w-[180px] ${text.primary}`}>
+                        {r.displayName || r.email || r.userId.slice(0, 8)}
+                      </span>
+                      <Badge tone="neutral">v{r.keyVersion}</Badge>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRecipient(r.userId)}
+                        disabled={isBusy}
+                        className={`p-1 rounded ${text.faint} hover:text-slate-700 dark:hover:text-slate-200`}
+                        aria-label="Xóa"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Tìm theo email — thêm nhiều người nhận…"
+                disabled={isBusy}
+                className={`w-full pr-10 ${inputBase}`}
+              />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                {searchLoading || keyLoading ? (
+                  <LoadingSpinner size="sm" />
+                ) : (
+                  <svg className={`w-4 h-4 ${text.faint}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
                 )}
               </div>
+              {searchResults.length > 0 && (
+                <div className={`absolute top-full mt-1 left-0 right-0 z-20 overflow-hidden ${panel.dropdown}`}>
+                  {searchResults.map((u) => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => void handleAddRecipient(u)}
+                      disabled={selectedRecipients.some((r) => r.userId === u.id) || !u.has_public_key}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition text-left disabled:opacity-40"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm truncate ${text.primary}`}>{u.email}</p>
+                        {u.display_name && (
+                          <p className={`text-xs ${text.muted}`}>{u.display_name}</p>
+                        )}
+                      </div>
+                      {u.has_public_key ? (
+                        <Badge tone="success">Thêm</Badge>
+                      ) : (
+                        <Badge tone="warning">Chưa có key</Badge>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-            {!isBusy && (
-              <p className="text-[11px] text-white/25">Nhấp để đổi file</p>
-            )}
+            {keyError && <p className="text-xs text-rose-600 dark:text-rose-400">{keyError}</p>}
+            <p className={`text-xs ${text.muted}`}>
+              Chọn từng người nhận — file xuất hiện trong lịch sử của họ.
+              {file && file.size >= CHUNKED_THRESHOLD && (
+                <span className="text-amber-700 dark:text-amber-300"> File lớn: chỉ gửi được cho một người.</span>
+              )}
+            </p>
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-indigo-500/12 border border-indigo-400/25 flex items-center justify-center">
-              <svg className="w-7 h-7 text-indigo-400/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-              </svg>
-            </div>
+            <Alert tone="warning">
+              Chế độ dán key không tạo bản ghi inbox. Dùng <strong>Tìm user</strong> để người nhận thấy file trong lịch sử.
+            </Alert>
             <div>
-              <p className="text-sm font-medium text-white/75">Kéo thả file vào đây</p>
-              <p className="text-xs text-white/40 mt-0.5">hoặc nhấp để chọn file · Mọi định dạng đều được</p>
+              <label className={label}>X25519 Public Key (base64)</label>
+              <textarea
+                value={recipientPublicKey}
+                onChange={(e) => setRecipientPublicKey(e.target.value)}
+                placeholder="Dán public key của người nhận…"
+                rows={3}
+                disabled={isBusy}
+                className={`w-full mt-1.5 font-mono text-sm resize-none ${inputBase}`}
+              />
             </div>
           </div>
         )}
-      </div>
+      </Card>
 
-      {/* ── Recipient public key ── */}
-      <div className={`${surfaceCard} p-5 space-y-4`}>
-        <div className="flex items-center gap-2">
-          <svg className="w-4 h-4 text-indigo-400/90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-          </svg>
-          <span className="text-sm font-medium text-white/85">Thông tin người nhận</span>
-        </div>
+      {error && <Alert tone="error">{error}</Alert>}
 
-        <div className="space-y-3">
-          <div>
-            <label className="block text-[12px] text-white/40 mb-1.5">
-              X25519 Public Key của người nhận <span className="text-rose-400">*</span>
-            </label>
-            <textarea
-              value={recipientPublicKey}
-              onChange={(e) => setRecipientPublicKey(e.target.value)}
-              placeholder="Dán X25519 Public Key (base64) của người nhận..."
-              rows={3}
-              disabled={isBusy}
-              className={`w-full rounded-xl px-3.5 py-2.5 text-sm font-mono text-white/85 resize-none ${inputBase}`}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Error */}
-      {error && (
-        <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3 text-sm text-rose-400">
-          <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-          </svg>
-          {error}
-        </div>
-      )}
-
-      {/* Progress bars */}
       {isBusy && chunkProgress && <ChunkProgressBar progress={chunkProgress} />}
       {isBusy && !chunkProgress && uploadPercent > 0 && (
-        <div className={`${surfaceCard} p-4 space-y-2`}>
-          <div className="flex justify-between text-xs text-white/55">
-            <span>Upload ciphertext...</span>
-            <span className="text-indigo-400 font-semibold">{uploadPercent}%</span>
+        <Card padding="sm" className="space-y-2">
+          <div className={`flex justify-between text-xs ${text.muted}`}>
+            <span>Upload ciphertext</span>
+            <span className="font-medium text-indigo-600 dark:text-indigo-400">{uploadPercent}%</span>
           </div>
-          <div className="w-full bg-indigo-950/60 rounded-full h-1.5">
-            <div className="bg-indigo-500 h-1.5 rounded-full transition-all" style={{ width: `${uploadPercent}%` }} />
+          <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5">
+            <div className="bg-indigo-600 dark:bg-indigo-500 h-1.5 rounded-full transition-all" style={{ width: `${uploadPercent}%` }} />
           </div>
-        </div>
+        </Card>
       )}
 
-      {/* Upload button */}
-      <button
-        onClick={() => encryptAndUpload(file, recipientPublicKey)}
-        disabled={isBusy || !file}
-        className={`w-full py-3.5 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2
-          ${isBusy || !file
-            ? "bg-white/[0.06] text-white/25 cursor-not-allowed"
-            : "bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-500/20"
-          }`}
+      <Button
+        fullWidth
+        loading={isBusy}
+        disabled={
+          isBusy ||
+          !canUseKeys ||
+          !file ||
+          (recipientMode === "search" && (selectedRecipients.length === 0 || keyLoading)) ||
+          (recipientMode === "manual" && !recipientPublicKey.trim())
+        }
+        onClick={() =>
+          encryptAndUpload(
+            file,
+            recipientMode === "search" ? selectedRecipients : [],
+            recipientMode === "manual" ? recipientPublicKey : undefined
+          )
+        }
       >
-        {stage === "encrypting" ? (
-          <>
-            <LoadingSpinner size="sm" />
-            {isChunkedMode ? `Mã hóa chunk... (${CHUNK_MB}MB/chunk)` : "Đang mã hóa..."}
-          </>
-        ) : stage === "uploading" ? (
-          <>
-            <LoadingSpinner size="sm" />
-            {isChunkedMode ? "Multipart upload Azure..." : "Uploading..."}
-          </>
-        ) : (
-          <>
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-            </svg>
-            Mã hóa & Upload
-          </>
-        )}
-      </button>
+        {stage === "encrypting"
+          ? isChunkedMode
+            ? `Mã hóa chunk (${CHUNK_MB}MB)…`
+            : "Đang mã hóa…"
+          : stage === "uploading"
+            ? isChunkedMode
+              ? "Multipart upload…"
+              : "Đang upload…"
+            : "Mã hóa & Upload"}
+      </Button>
 
     </div>
   );
@@ -256,30 +423,33 @@ function ChunkProgressBar({ progress }: { progress: ChunkProgress }) {
   const isEncrypt = phase === "encrypt";
 
   return (
-    <div className={`${surfaceCard} p-4 space-y-3`}>
-      <div className="flex items-center justify-between text-xs">
-        <div className="flex items-center gap-2 text-white/60">
-          <span className={`w-1.5 h-1.5 rounded-full ${isEncrypt ? "bg-amber-400" : "bg-indigo-400"} animate-pulse`} />
-          <span>{isEncrypt ? "Mã hóa" : "Upload"} chunk {done + (isEncrypt ? 1 : 0)}/{total}
-            {currentMB > 0 && ` (${currentMB}MB)`}
-          </span>
-        </div>
-        <span className={`font-bold ${isEncrypt ? "text-amber-400" : "text-indigo-400"}`}>{pct}%</span>
+    <Card padding="sm" className="space-y-2">
+      <div className={`flex items-center justify-between text-xs ${text.muted}`}>
+        <span>
+          {isEncrypt ? "Mã hóa" : "Upload"} chunk {done + (isEncrypt ? 1 : 0)}/{total}
+          {currentMB > 0 && ` · ${currentMB}MB`}
+        </span>
+        <span className="font-medium text-indigo-600 dark:text-indigo-400">{pct}%</span>
       </div>
-      <div className="w-full bg-indigo-950/60 rounded-full h-1.5 overflow-hidden">
+      <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
         <div
-          className={`h-1.5 rounded-full transition-all duration-300 ${isEncrypt ? "bg-amber-500" : "bg-indigo-500"}`}
+          className={`h-1.5 rounded-full transition-all duration-300 ${isEncrypt ? "bg-amber-500" : "bg-indigo-600 dark:bg-indigo-500"}`}
           style={{ width: `${pct}%` }}
         />
       </div>
-    </div>
+    </Card>
   );
 }
 
 function DoneCard({
-  sasUrl, copied, onCopy, onReset, plaintextChecksum,
+  sasUrl, copied, onCopy, onReset, plaintextChecksum, recipientCount,
 }: {
-  sasUrl: string; copied: boolean; onCopy: () => void; onReset: () => void; plaintextChecksum: string;
+  sasUrl: string;
+  copied: boolean;
+  onCopy: () => void;
+  onReset: () => void;
+  plaintextChecksum: string;
+  recipientCount: number;
 }) {
   const [checksumCopied, setChecksumCopied] = useState(false);
 
@@ -290,66 +460,42 @@ function DoneCard({
   }
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Mã hóa & Upload</h1>
-      </div>
+    <div className="space-y-5">
+      <PageHeader title="Mã hóa & Upload" />
 
-      {/* Success banner */}
-      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-5 flex items-center gap-4">
-        <div className="w-10 h-10 rounded-xl bg-emerald-500/15 flex items-center justify-center shrink-0">
-          <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-        <div>
-          <p className="font-semibold text-emerald-400 text-sm">Upload thành công!</p>
-          <p className="text-xs text-white/40 mt-0.5">File đã được mã hóa và lưu trên Azure Blob Storage.</p>
-        </div>
-      </div>
+      <Alert tone="success">
+        <p className="font-medium">Upload thành công</p>
+        <p className={`text-xs mt-1 ${text.muted}`}>
+          File đã mã hóa và lưu trên Azure.
+          {recipientCount > 1 && ` Đã chia sẻ cho ${recipientCount} người nhận.`}
+        </p>
+      </Alert>
 
-      {/* Checksum */}
       {plaintextChecksum && (
-        <div className="bg-indigo-500/8 border border-indigo-500/15 rounded-2xl p-4 space-y-2">
+        <Card padding="sm" className="space-y-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider">SHA-256 Checksum</span>
-            </div>
-            <button onClick={handleCopyChecksum} className="text-[11px] text-indigo-400/70 hover:text-indigo-300 transition">
-              {checksumCopied ? "Đã copy!" : "Copy"}
+            <span className={label}>SHA-256 checksum</span>
+            <button type="button" onClick={handleCopyChecksum} className={`text-xs ${btn.ghost}`}>
+              {checksumCopied ? "Đã copy" : "Copy"}
             </button>
           </div>
-          <p className="text-[11px] font-mono text-white/50 break-all leading-relaxed">{plaintextChecksum}</p>
-        </div>
+          <p className={`text-xs font-mono break-all ${text.muted}`}>{plaintextChecksum}</p>
+        </Card>
       )}
 
-      {/* SAS Link */}
-      <div className={`${surfaceCard} p-5 space-y-3`}>
-        <label className="block text-[12px] font-semibold text-white/50 uppercase tracking-wider">SAS Link chia sẻ</label>
+      <Card className="space-y-3">
+        <label className={label}>SAS link chia sẻ</label>
         <div className="flex gap-2">
-          <input
-            readOnly
-            value={sasUrl}
-            className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-mono text-white/70 ${inputBase}`}
-          />
-          <button
-            onClick={onCopy}
-            className="bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/20 text-indigo-400 px-4 py-2.5 rounded-xl text-xs font-semibold transition whitespace-nowrap"
-          >
-            {copied ? "Đã copy!" : "Copy link"}
-          </button>
+          <input readOnly value={sasUrl} className={`flex-1 text-xs font-mono ${inputBase}`} />
+          <Button variant="secondary" onClick={onCopy}>
+            {copied ? "Đã copy" : "Copy"}
+          </Button>
         </div>
-      </div>
+      </Card>
 
-      <button
-        onClick={onReset}
-        className="w-full border border-white/[0.10] text-white/50 hover:text-white/80 hover:border-white/[0.20] py-3 rounded-xl text-sm transition"
-      >
+      <Button variant="secondary" fullWidth onClick={onReset}>
         Upload file khác
-      </button>
+      </Button>
     </div>
   );
 }

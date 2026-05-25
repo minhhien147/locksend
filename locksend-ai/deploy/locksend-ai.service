@@ -1,0 +1,16 @@
+[Unit]
+Description=LockSend AI (Random Forest inference)
+After=network.target
+
+[Service]
+Type=simple
+User=locksend
+WorkingDirectory=/opt/secure-file-sharing/locksend-ai
+Environment=PATH=/opt/secure-file-sharing/locksend-ai/venv/bin
+Environment=LOCKSEND_AI_API_KEY=CHANGE_ME
+ExecStart=/opt/secure-file-sharing/locksend-ai/venv/bin/uvicorn server:app --host 0.0.0.0 --port 8100
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

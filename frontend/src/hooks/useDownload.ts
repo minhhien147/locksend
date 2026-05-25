@@ -61,7 +61,8 @@ export function useDownload(): UseDownloadReturn {
     if (!myKeys) {
       setState((prev) => ({
         ...prev,
-        error: "Bạn chưa tạo keypair. Vào trang Quản lý Keys trước.",
+        error:
+          "Chưa mở khóa keypair. Vào trang Quản lý Keys, nhập passphrase (hoặc tạo key mới).",
       }));
       return;
     }

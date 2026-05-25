@@ -27,8 +27,7 @@ const DEFAULT_SIZES_MB = [10, 100, 256, 512];
 /** Kích thước mở rộng — cảnh báo người dùng trước khi chạy */
 const EXTENDED_SIZES_MB = [1024, 2048, 4096];
 
-const surfaceCard =
-  "rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-950/50 via-[#0c0e14]/95 to-violet-950/25 shadow-xl shadow-indigo-950/30";
+import { surfaceCard, btn } from "../styles/theme";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -484,7 +483,7 @@ export default function StressTestPage() {
             type="button"
             onClick={handleRun}
             disabled={isRunning || includedSizesMB.length === 0}
-            className="px-6 py-2.5 rounded-xl font-semibold text-sm bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-900/25 transition disabled:opacity-40 disabled:cursor-not-allowed"
+            className={`px-6 ${btn.primary} disabled:opacity-40 disabled:cursor-not-allowed`}
           >
             {isRunning ? "Đang chạy…" : "Chạy Stress Test"}
           </button>

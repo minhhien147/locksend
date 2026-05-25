@@ -1,31 +1,100 @@
 @import "tailwindcss";
 
-/* ── Floating icons orbit ─────────────────────────────────────────── */
+@custom-variant dark (&:where(.dark, .dark *));
 
-@keyframes orbit-1 {
-  0%   { transform: translate(0px,   0px)   rotate(-8deg);  }
-  25%  { transform: translate(40px, -50px)  rotate(4deg);   }
-  50%  { transform: translate(80px,  10px)  rotate(14deg);  }
-  75%  { transform: translate(30px,  55px)  rotate(-4deg);  }
-  100% { transform: translate(0px,   0px)   rotate(-8deg);  }
+/* ── Theme tokens ───────────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+  --ls-bg: #dfe3eb;
+  --ls-surface: #e8ebf1;
+  --ls-input: #e4e7ee;
+  --ls-border: rgba(51, 65, 85, 0.18);
+  --ls-text: #1e293b;
+  --ls-muted: #64748b;
 }
 
-@keyframes orbit-2 {
-  0%   { transform: translate(0px,   0px)   rotate(6deg);   }
-  25%  { transform: translate(-50px, 40px)  rotate(-6deg);  }
-  50%  { transform: translate(-20px, 80px)  rotate(16deg);  }
-  75%  { transform: translate(45px,  30px)  rotate(2deg);   }
-  100% { transform: translate(0px,   0px)   rotate(6deg);   }
+.dark {
+  color-scheme: dark;
+  --ls-bg: #0b0d12;
+  --ls-surface: #0c0e14;
+  --ls-input: #12141c;
+  --ls-border: rgba(255, 255, 255, 0.08);
+  --ls-text: #f8fafc;
+  --ls-muted: rgba(255, 255, 255, 0.4);
 }
 
-@keyframes orbit-3 {
-  0%   { transform: translate(0px,   0px)   rotate(12deg);  }
-  20%  { transform: translate(-60px,-30px)  rotate(-5deg);  }
-  45%  { transform: translate(-30px,-70px)  rotate(18deg);  }
-  70%  { transform: translate(50px, -40px)  rotate(6deg);   }
-  100% { transform: translate(0px,   0px)   rotate(12deg);  }
+html,
+body {
+  background-color: var(--ls-bg);
+  color: var(--ls-text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-.animate-orbit-1 { animation: orbit-1 9s  ease-in-out infinite; }
-.animate-orbit-2 { animation: orbit-2 12s ease-in-out infinite 2s; }
-.animate-orbit-3 { animation: orbit-3 10s ease-in-out infinite 4s; }
+/* ── Floating icons — transform (GPU), luôn chạy trừ reduce-motion ─ */
+
+@keyframes ls-drift-1 {
+  0%, 100% { transform: translate(4vw, 10vh) rotate(-8deg); }
+  25%      { transform: translate(72vw, 8vh) rotate(6deg); }
+  50%      { transform: translate(78vw, 52vh) rotate(12deg); }
+  75%      { transform: translate(12vw, 72vh) rotate(-4deg); }
+}
+
+@keyframes ls-drift-2 {
+  0%, 100% { transform: translate(70vw, 68vh) rotate(5deg); }
+  33%      { transform: translate(8vw, 58vh) rotate(-10deg); }
+  66%      { transform: translate(18vw, 14vh) rotate(8deg); }
+}
+
+@keyframes ls-drift-3 {
+  0%, 100% { transform: translate(38vw, 78vh) rotate(-6deg); }
+  50%      { transform: translate(62vw, 28vh) rotate(10deg); }
+}
+
+@keyframes ls-drift-4 {
+  0%, 100% { transform: translate(58vw, 16vh) rotate(4deg); }
+  30%      { transform: translate(22vw, 10vh) rotate(-12deg); }
+  60%      { transform: translate(6vw, 44vh) rotate(6deg); }
+  90%      { transform: translate(44vw, 62vh) rotate(-5deg); }
+}
+
+.ls-float-icon {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  will-change: transform;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.ls-float-drift-1 {
+  animation-name: ls-drift-1;
+  animation-duration: 14s;
+}
+
+.ls-float-drift-2 {
+  animation-name: ls-drift-2;
+  animation-duration: 17s;
+  animation-delay: 1.5s;
+}
+
+.ls-float-drift-3 {
+  animation-name: ls-drift-3;
+  animation-duration: 15s;
+  animation-delay: 3s;
+}
+
+.ls-float-drift-4 {
+  animation-name: ls-drift-4;
+  animation-duration: 19s;
+  animation-delay: 0.5s;
+}
+
+/* Reduce motion: chậm hơn ~2×, vẫn di chuyển */
+@media (prefers-reduced-motion: reduce) {
+  .ls-float-drift-1 { animation-duration: 28s; }
+  .ls-float-drift-2 { animation-duration: 32s; }
+  .ls-float-drift-3 { animation-duration: 30s; }
+  .ls-float-drift-4 { animation-duration: 34s; }
+}

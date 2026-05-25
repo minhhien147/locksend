@@ -7,6 +7,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0b0d12" />
     <title>LockSend</title>
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("locksend-theme");
+          var dark = t === "dark" || (t !== "light" && (!t || t === "dark"));
+          if (t === "light") dark = false;
+          if (t === "dark") dark = true;
+          document.documentElement.classList.toggle("dark", dark);
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch (e) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
     <style>
       #app-preloader {
         position: fixed;
@@ -19,6 +33,13 @@
         gap: 1.75rem;
         padding: 1.5rem;
         font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        background-color: #dfe3eb;
+        background-image:
+          radial-gradient(ellipse 80% 55% at 85% 10%, rgba(99, 102, 241, 0.08), transparent 55%),
+          radial-gradient(ellipse 70% 50% at 15% 90%, rgba(139, 92, 246, 0.06), transparent 50%);
+        color: #1e293b;
+      }
+      html.dark #app-preloader {
         background-color: #0b0d12;
         background-image:
           radial-gradient(ellipse 80% 55% at 85% 10%, rgba(79, 70, 229, 0.14), transparent 55%),

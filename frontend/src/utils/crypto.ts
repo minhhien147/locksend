@@ -30,6 +30,9 @@ export interface EncryptionMetadata {
   mimeType: string;
   /** SHA-256 hex của plaintext gốc — dùng để verify toàn vẹn sau khi giải mã */
   plaintextChecksum?: string;
+  /** Envelope: bọc content key riêng cho từng người nhận (gửi nhiều người, một ciphertext) */
+  envelopeMode?: boolean;
+  contentKeyEnvelope?: string;
 }
 
 /** Metadata mở rộng cho chunked encryption */
@@ -45,6 +48,13 @@ export interface ChunkedEncryptionMetadata extends EncryptionMetadata {
 export interface EncryptResult {
   ciphertext: Uint8Array;
   metadata: EncryptionMetadata;
+}
+
+export interface MultiRecipientEncryptResult {
+  ciphertext: Uint8Array;
+  plaintextChecksum: string;
+  /** Một metadata / wrapped key cho mỗi người nhận */
+  perRecipientMetadata: EncryptionMetadata[];
 }
 
 // ─── Key Generation ───────────────────────────────────────────────────────────
@@ -212,6 +222,82 @@ export async function encryptFile(
   return { ciphertext, metadata };
 }
 
+const ENVELOPE_WRAP_INFO = "locksend-envelope-wrap-v1";
+
+/**
+ * Mã hóa một lần, bọc content key cho nhiều người nhận (cùng một ciphertext trên blob).
+ */
+export async function encryptFileForRecipients(
+  file: File,
+  recipientPublicKeys: Uint8Array[],
+  senderEd25519PrivateKey: Uint8Array,
+  senderEd25519PublicKey: Uint8Array
+): Promise<MultiRecipientEncryptResult> {
+  if (recipientPublicKeys.length === 0) {
+    throw new Error("Cần ít nhất một người nhận");
+  }
+
+  const plaintext = await file.arrayBuffer();
+  const plaintextChecksum = await computeSHA256Hex(plaintext);
+
+  const contentSecret = crypto.getRandomValues(new Uint8Array(32));
+  const contentNonce = crypto.getRandomValues(new Uint8Array(12));
+  const contentAesKey = await crypto.subtle.importKey(
+    "raw",
+    toArrayBuffer(contentSecret),
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+
+  const ciphertextBuffer = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: toArrayBuffer(contentNonce) },
+    contentAesKey,
+    plaintext
+  );
+  const ciphertext = new Uint8Array(ciphertextBuffer);
+  const signature = ed25519.sign(ciphertext, senderEd25519PrivateKey);
+
+  const baseMeta = {
+    signature: toBase64(signature),
+    signerPublicKey: toBase64(senderEd25519PublicKey),
+    fileName: file.name,
+    fileSize: file.size,
+    mimeType: file.type || "application/octet-stream",
+    plaintextChecksum,
+    envelopeMode: true as const,
+  };
+
+  const envelopePlain = new Uint8Array(44);
+  envelopePlain.set(contentSecret, 0);
+  envelopePlain.set(contentNonce, 32);
+
+  const perRecipientMetadata: EncryptionMetadata[] = [];
+
+  for (const recipientPub of recipientPublicKeys) {
+    const ephemeral = generateX25519KeyPair();
+    const sharedSecret = x25519.getSharedSecret(ephemeral.privateKey, recipientPub);
+    const { aesKey: wrapKey, nonce: wrapNonce } = await deriveKeyAndNonce(
+      sharedSecret,
+      ephemeral.publicKey,
+      ENVELOPE_WRAP_INFO
+    );
+    const wrapped = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: toArrayBuffer(wrapNonce) },
+      wrapKey,
+      toArrayBuffer(envelopePlain)
+    );
+    perRecipientMetadata.push({
+      ...baseMeta,
+      ephemeralPublicKey: toBase64(ephemeral.publicKey),
+      nonce: toBase64(wrapNonce),
+      contentKeyEnvelope: toBase64(new Uint8Array(wrapped)),
+    });
+  }
+
+  return { ciphertext, plaintextChecksum, perRecipientMetadata };
+}
+
 // ─── Decryption (Download) ────────────────────────────────────────────────────
 
 /**
@@ -237,35 +323,74 @@ export async function decryptFile(
     throw new Error("Chữ ký Ed25519 không hợp lệ — file có thể bị giả mạo!");
   }
 
-  // 2. Tính shared secret
   const ephemeralPublicKey = fromBase64(metadata.ephemeralPublicKey);
   const sharedSecret = x25519.getSharedSecret(
     recipientX25519PrivateKey,
     ephemeralPublicKey
   );
 
-  // 3. HKDF → AES key + nonce (dùng ephemeral public key làm salt)
-  const { aesKey, nonce: derivedNonce } = await deriveKeyAndNonce(
-    sharedSecret,
-    ephemeralPublicKey
-  );
-
-  const storedNonce = fromBase64(metadata.nonce);
-  // Kiểm tra nonce khớp (đảm bảo HKDF deterministic)
-  if (!timingSafeEqual(derivedNonce, storedNonce)) {
-    throw new Error("Nonce không khớp — metadata bị sửa đổi!");
-  }
-
-  // 4. AES-256-GCM decrypt (GCM tag tự động kiểm tra)
   let plaintextBuffer: ArrayBuffer;
-  try {
-    plaintextBuffer = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: toArrayBuffer(storedNonce) },
-      aesKey,
-      toArrayBuffer(ciphertext)
+
+  if (metadata.envelopeMode && metadata.contentKeyEnvelope) {
+    const { aesKey: wrapKey, nonce: wrapNonce } = await deriveKeyAndNonce(
+      sharedSecret,
+      ephemeralPublicKey,
+      ENVELOPE_WRAP_INFO
     );
-  } catch {
-    throw new Error("Giải mã thất bại — sai khóa hoặc dữ liệu bị hỏng!");
+    const storedWrapNonce = fromBase64(metadata.nonce);
+    if (!timingSafeEqual(wrapNonce, storedWrapNonce)) {
+      throw new Error("Nonce bọc khóa không khớp — metadata bị sửa đổi!");
+    }
+    let unwrapped: ArrayBuffer;
+    try {
+      unwrapped = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: toArrayBuffer(storedWrapNonce) },
+        wrapKey,
+        toArrayBuffer(fromBase64(metadata.contentKeyEnvelope))
+      );
+    } catch {
+      throw new Error("Không mở được khóa nội dung — sai key người nhận?");
+    }
+    const unwrappedBytes = new Uint8Array(unwrapped);
+    if (unwrappedBytes.length !== 44) {
+      throw new Error("Envelope khóa nội dung không hợp lệ");
+    }
+    const contentSecret = unwrappedBytes.slice(0, 32);
+    const contentNonce = unwrappedBytes.slice(32, 44);
+    const contentAesKey = await crypto.subtle.importKey(
+      "raw",
+      toArrayBuffer(contentSecret),
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["decrypt"]
+    );
+    try {
+      plaintextBuffer = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: toArrayBuffer(contentNonce) },
+        contentAesKey,
+        toArrayBuffer(ciphertext)
+      );
+    } catch {
+      throw new Error("Giải mã thất bại — sai khóa hoặc dữ liệu bị hỏng!");
+    }
+  } else {
+    const { aesKey, nonce: derivedNonce } = await deriveKeyAndNonce(
+      sharedSecret,
+      ephemeralPublicKey
+    );
+    const storedNonce = fromBase64(metadata.nonce);
+    if (!timingSafeEqual(derivedNonce, storedNonce)) {
+      throw new Error("Nonce không khớp — metadata bị sửa đổi!");
+    }
+    try {
+      plaintextBuffer = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: toArrayBuffer(storedNonce) },
+        aesKey,
+        toArrayBuffer(ciphertext)
+      );
+    } catch {
+      throw new Error("Giải mã thất bại — sai khóa hoặc dữ liệu bị hỏng!");
+    }
   }
 
   // 5. Verify SHA-256 plaintext checksum (phát hiện thay thế nội dung / mã độc)
@@ -504,20 +629,40 @@ export async function decryptFileChunked(
   return result;
 }
 
-// ─── Key Storage (localStorage) ───────────────────────────────────────────────
+// ─── Key Storage (localStorage, passphrase-encrypted) ─────────────────────────
 
 export interface StoredKeyPair {
   x25519: { privateKey: string; publicKey: string };
   ed25519: { privateKey: string; publicKey: string };
 }
 
-const KEY_STORAGE_KEY = "secure_file_sharing_keys";
+export type UnlockedKeyPairs = {
+  x25519: KeyPair;
+  ed25519: KeyPair;
+};
 
-export function saveKeysToStorage(
+interface EncryptedKeyEnvelope {
+  v: 1;
+  kdf: "PBKDF2";
+  hash: "SHA-256";
+  iterations: number;
+  salt: string;
+  cipher: "AES-GCM";
+  iv: string;
+  ciphertext: string;
+}
+
+const KEY_STORAGE_KEY = "secure_file_sharing_keys";
+const PBKDF2_ITERATIONS = 310_000;
+const MIN_PASSPHRASE_LEN = 8;
+
+let _sessionKeys: UnlockedKeyPairs | null = null;
+
+function storedPayloadFromKeyPairs(
   x25519Keys: KeyPair,
   ed25519Keys: KeyPair
-): void {
-  const stored: StoredKeyPair = {
+): StoredKeyPair {
+  return {
     x25519: {
       privateKey: toBase64(x25519Keys.privateKey),
       publicKey: toBase64(x25519Keys.publicKey),
@@ -527,34 +672,245 @@ export function saveKeysToStorage(
       publicKey: toBase64(ed25519Keys.publicKey),
     },
   };
-  localStorage.setItem(KEY_STORAGE_KEY, JSON.stringify(stored));
 }
 
-export function loadKeysFromStorage(): {
-  x25519: KeyPair;
-  ed25519: KeyPair;
-} | null {
+function keyPairsFromStored(stored: StoredKeyPair): UnlockedKeyPairs {
+  return {
+    x25519: {
+      privateKey: fromBase64(stored.x25519.privateKey),
+      publicKey: fromBase64(stored.x25519.publicKey),
+    },
+    ed25519: {
+      privateKey: fromBase64(stored.ed25519.privateKey),
+      publicKey: fromBase64(stored.ed25519.publicKey),
+    },
+  };
+}
+
+function isEncryptedEnvelope(value: unknown): value is EncryptedKeyEnvelope {
+  if (!value || typeof value !== "object") return false;
+  const o = value as EncryptedKeyEnvelope;
+  return o.v === 1 && o.cipher === "AES-GCM" && typeof o.ciphertext === "string";
+}
+
+function isLegacyPlainStored(value: unknown): value is StoredKeyPair {
+  if (!value || typeof value !== "object") return false;
+  const o = value as StoredKeyPair;
+  return (
+    typeof o.x25519?.privateKey === "string" &&
+    typeof o.ed25519?.privateKey === "string"
+  );
+}
+
+export function validatePassphrase(passphrase: string): string | null {
+  if (passphrase.length < MIN_PASSPHRASE_LEN) {
+    return `Passphrase cần ít nhất ${MIN_PASSPHRASE_LEN} ký tự.`;
+  }
+  return null;
+}
+
+export function hasKeysInStorage(): boolean {
+  return localStorage.getItem(KEY_STORAGE_KEY) !== null;
+}
+
+export function isEncryptedKeyStorage(): boolean {
+  const raw = localStorage.getItem(KEY_STORAGE_KEY);
+  if (!raw) return false;
+  try {
+    return isEncryptedEnvelope(JSON.parse(raw));
+  } catch {
+    return false;
+  }
+}
+
+export function isLegacyPlainKeyStorage(): boolean {
+  const raw = localStorage.getItem(KEY_STORAGE_KEY);
+  if (!raw) return false;
+  try {
+    return isLegacyPlainStored(JSON.parse(raw));
+  } catch {
+    return false;
+  }
+}
+
+export function isKeysUnlocked(): boolean {
+  return _sessionKeys !== null;
+}
+
+export function lockKeysInSession(): void {
+  _sessionKeys = null;
+}
+
+async function derivePassphraseAesKey(
+  passphrase: string,
+  salt: Uint8Array,
+  iterations: number
+): Promise<CryptoKey> {
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(passphrase),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: toArrayBuffer(salt),
+      iterations,
+      hash: "SHA-256",
+    },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+async function encryptStoredPayload(
+  payload: StoredKeyPair,
+  passphrase: string
+): Promise<EncryptedKeyEnvelope> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const aesKey = await derivePassphraseAesKey(passphrase, salt, PBKDF2_ITERATIONS);
+  const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+  const encrypted = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: toArrayBuffer(iv) },
+    aesKey,
+    plaintext
+  );
+  return {
+    v: 1,
+    kdf: "PBKDF2",
+    hash: "SHA-256",
+    iterations: PBKDF2_ITERATIONS,
+    salt: toBase64(salt),
+    cipher: "AES-GCM",
+    iv: toBase64(iv),
+    ciphertext: toBase64(new Uint8Array(encrypted)),
+  };
+}
+
+async function decryptStoredPayload(
+  envelope: EncryptedKeyEnvelope,
+  passphrase: string
+): Promise<StoredKeyPair> {
+  const salt = fromBase64(envelope.salt);
+  const iv = fromBase64(envelope.iv);
+  const aesKey = await derivePassphraseAesKey(
+    passphrase,
+    salt,
+    envelope.iterations
+  );
+  const decrypted = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: toArrayBuffer(iv) },
+    aesKey,
+    toArrayBuffer(fromBase64(envelope.ciphertext))
+  );
+  const parsed: unknown = JSON.parse(new TextDecoder().decode(decrypted));
+  if (!isLegacyPlainStored(parsed)) {
+    throw new Error("INVALID_PAYLOAD");
+  }
+  return parsed;
+}
+
+/** Lưu keypair đã mã hóa bằng passphrase (PBKDF2 + AES-256-GCM). */
+export async function saveKeysToStorage(
+  x25519Keys: KeyPair,
+  ed25519Keys: KeyPair,
+  passphrase: string
+): Promise<void> {
+  const err = validatePassphrase(passphrase);
+  if (err) throw new Error(err);
+
+  const payload = storedPayloadFromKeyPairs(x25519Keys, ed25519Keys);
+  const envelope = await encryptStoredPayload(payload, passphrase);
+  localStorage.setItem(KEY_STORAGE_KEY, JSON.stringify(envelope));
+  _sessionKeys = { x25519: x25519Keys, ed25519: ed25519Keys };
+}
+
+/** Giải mã keypair từ localStorage và giữ trong session (đến khi refresh / lock). */
+export async function unlockKeysFromStorage(
+  passphrase: string
+): Promise<UnlockedKeyPairs> {
+  const raw = localStorage.getItem(KEY_STORAGE_KEY);
+  if (!raw) throw new Error("NO_KEYS");
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("INVALID_STORAGE");
+  }
+
+  if (isEncryptedEnvelope(parsed)) {
+    try {
+      const stored = await decryptStoredPayload(parsed, passphrase);
+      _sessionKeys = keyPairsFromStored(stored);
+      return _sessionKeys;
+    } catch {
+      throw new Error("WRONG_PASSPHRASE");
+    }
+  }
+
+  if (isLegacyPlainStored(parsed)) {
+    _sessionKeys = keyPairsFromStored(parsed);
+    return _sessionKeys;
+  }
+
+  throw new Error("INVALID_STORAGE");
+}
+
+/** Nâng cấp bản lưu plaintext cũ → mã hóa passphrase. */
+export async function migrateLegacyKeysToEncrypted(
+  passphrase: string
+): Promise<void> {
+  const raw = localStorage.getItem(KEY_STORAGE_KEY);
+  if (!raw) throw new Error("NO_KEYS");
+  const parsed: unknown = JSON.parse(raw);
+  if (!isLegacyPlainStored(parsed)) {
+    throw new Error("NOT_LEGACY");
+  }
+  const pairs = keyPairsFromStored(parsed);
+  await saveKeysToStorage(pairs.x25519, pairs.ed25519, passphrase);
+}
+
+/** Đổi passphrase (cần đã unlock). */
+export async function changeKeysPassphrase(newPassphrase: string): Promise<void> {
+  if (!_sessionKeys) throw new Error("LOCKED");
+  const err = validatePassphrase(newPassphrase);
+  if (err) throw new Error(err);
+  await saveKeysToStorage(
+    _sessionKeys.x25519,
+    _sessionKeys.ed25519,
+    newPassphrase
+  );
+}
+
+/** Trả keypair nếu đã unlock (hoặc legacy plaintext chưa nâng cấp). */
+export function loadKeysFromStorage(): UnlockedKeyPairs | null {
+  if (_sessionKeys) return _sessionKeys;
+
   const raw = localStorage.getItem(KEY_STORAGE_KEY);
   if (!raw) return null;
+
   try {
-    const stored: StoredKeyPair = JSON.parse(raw);
-    return {
-      x25519: {
-        privateKey: fromBase64(stored.x25519.privateKey),
-        publicKey: fromBase64(stored.x25519.publicKey),
-      },
-      ed25519: {
-        privateKey: fromBase64(stored.ed25519.privateKey),
-        publicKey: fromBase64(stored.ed25519.publicKey),
-      },
-    };
+    const parsed: unknown = JSON.parse(raw);
+    if (isLegacyPlainStored(parsed)) {
+      _sessionKeys = keyPairsFromStored(parsed);
+      return _sessionKeys;
+    }
   } catch {
     return null;
   }
+
+  return null;
 }
 
 export function clearKeysFromStorage(): void {
   localStorage.removeItem(KEY_STORAGE_KEY);
+  _sessionKeys = null;
 }
 
 // ─── Checksum ─────────────────────────────────────────────────────────────────

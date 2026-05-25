@@ -16,7 +16,22 @@
 import axios from "axios";
 import type { EncryptionMetadata, ChunkedEncryptionMetadata } from "./crypto";
 
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8080";
+/** Dev: .env.local VITE_API_URL hoặc localhost. Prod (Vercel): bắt buộc set VITE_API_URL rồi redeploy. */
+function resolveApiBaseUrl(): string {
+  const fromEnv = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  if (import.meta.env.DEV) return "http://localhost:8000";
+  return "";
+}
+
+const BASE_URL = resolveApiBaseUrl();
+
+if (import.meta.env.PROD && !BASE_URL) {
+  console.error(
+    "[LockSend] Thiếu VITE_API_URL. Vercel → Settings → Environment Variables → " +
+      "VITE_API_URL = URL Railway backend (vd. https://locksend-be-production.up.railway.app), rồi Redeploy."
+  );
+}
 
 // ── In-memory access token ────────────────────────────────────────────────────
 // Không export trực tiếp — dùng setAccessToken / getAccessToken
@@ -28,6 +43,18 @@ export function setAccessToken(token: string | null): void {
 
 export function getAccessToken(): string | null {
   return _accessToken;
+}
+
+/** Decode JWT payload (không verify signature — chỉ dùng cho display/meta). */
+export function parseJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const json = atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"));
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }
 
 // ── Axios instance ────────────────────────────────────────────────────────────
@@ -201,14 +228,21 @@ export interface MultipartInitResponse {
   upload_id: string;
 }
 
-export default api;
+export interface RecipientPayload {
+  recipient_id: string;
+  wrapped_file_key: string;
+  wrapped_key_alg?: string;
+  key_id?: string | null;
+  wrapped_key_version?: number;
+}
 
 /** Upload ciphertext + metadata lên backend (single-shot, dành cho file nhỏ) */
 export async function uploadEncryptedFile(
   ciphertext: Uint8Array,
   metadata: EncryptionMetadata,
   fileName: string,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  recipients?: RecipientPayload[]
 ): Promise<UploadResponse> {
   const formData = new FormData();
   const blob = new Blob([new Uint8Array(ciphertext)], {
@@ -216,6 +250,9 @@ export async function uploadEncryptedFile(
   });
   formData.append("file", blob, fileName + ".enc");
   formData.append("metadata_json", JSON.stringify(metadata));
+  if (recipients && recipients.length > 0) {
+    formData.append("recipients_json", JSON.stringify(recipients));
+  }
 
   const response = await api.post<UploadResponse>("/upload", formData, {
     headers: { "Content-Type": "multipart/form-data" },
@@ -269,13 +306,15 @@ export async function uploadChunk(
 export async function finalizeMultipartUpload(
   blobName: string,
   chunkCount: number,
-  metadata: ChunkedEncryptionMetadata
+  metadata: ChunkedEncryptionMetadata,
+  recipients?: RecipientPayload[]
 ): Promise<UploadResponse> {
   const response = await api.post<UploadResponse>(
     `/upload/multipart/${encodeURIComponent(blobName)}/finalize`,
     {
       chunk_count: chunkCount,
       metadata_json: JSON.stringify(metadata),
+      recipients: recipients ?? [],
     }
   );
   return response.data;
@@ -360,7 +399,88 @@ export async function getRecipientKeys(userId: string): Promise<UserKeys> {
   return response.data;
 }
 
+// ── User search & public keys ─────────────────────────────────────────────────
+
+export interface UserSearchResult {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  role: string;
+  has_public_key: boolean;
+}
+
+export interface PublicKeyResult {
+  user_id: string;
+  public_key_x25519: string;
+  public_key_ed25519: string;
+  key_version: number;
+}
+
+/** Tìm user theo email (partial match). */
+export async function searchUsers(q: string): Promise<UserSearchResult[]> {
+  if (q.trim().length < 2) return [];
+  const res = await api.get<UserSearchResult[]>("/auth/users/search", { params: { q } });
+  return res.data;
+}
+
+/** Lấy public key (X25519) của user theo internal UUID từ DB. */
+export async function getUserPublicKey(userId: string): Promise<PublicKeyResult> {
+  const res = await api.get<PublicKeyResult>(`/auth/users/${userId}/public-key`);
+  return res.data;
+}
+
+/** Đẩy public key của chính mình lên server (gọi sau khi tạo keypair). */
+export async function storeMyPublicKey(params: {
+  externalId: string;
+  publicKeyX25519: string;
+  publicKeyEd25519: string;
+}): Promise<void> {
+  await api.post("/keys", {
+    user_id: params.externalId,
+    public_key_x25519: params.publicKeyX25519,
+    public_key_ed25519: params.publicKeyEd25519,
+  });
+}
+
+// ── Shared With Me ────────────────────────────────────────────────────────────
+
+export interface SharedFileItem {
+  file_id: string;
+  blob_name: string;
+  original_filename: string;
+  content_type: string | null;
+  file_size_bytes: number;
+  encryption_alg: string;
+  granted_at: string;
+  wrapped_file_key: string;
+  wrapped_key_alg: string;
+  key_id: string | null;
+  wrapped_key_version: number;
+  sender_name: string | null;
+  sender_email: string | null;
+}
+
+/** Danh sách file được chia sẻ cho user hiện tại. */
+export async function getSharedWithMe(): Promise<SharedFileItem[]> {
+  const res = await api.get<SharedFileItem[]>("/files/shared-with-me");
+  return res.data;
+}
+
+/** Lấy SAS URL để tải file được chia sẻ (dành cho recipient). */
+export async function getSharedFileSas(fileId: string): Promise<FreshSasResponse> {
+  const res = await api.get<FreshSasResponse>(`/files/shared/${fileId}/sas`);
+  return res.data;
+}
+
 // ── File History ──────────────────────────────────────────────────────────────
+
+export interface RecipientInfo {
+  recipient_id: string;
+  email: string | null;
+  display_name: string | null;
+  status: string;
+  granted_at: string;
+}
 
 export interface FileHistoryItem {
   file_id: string;
@@ -372,6 +492,7 @@ export interface FileHistoryItem {
   chunk_count: number;
   created_at: string;
   updated_at: string;
+  recipients: RecipientInfo[];
 }
 
 export interface FreshSasResponse {
@@ -392,4 +513,11 @@ export async function refreshSasUrl(fileId: string): Promise<FreshSasResponse> {
   const res = await api.get<FreshSasResponse>(`/files/${fileId}/sas`);
   return res.data;
 }
+
+/** Revoke quyền truy cập của một recipient */
+export async function revokeRecipient(fileId: string, recipientId: string): Promise<void> {
+  await api.post(`/files/${fileId}/revoke/${recipientId}`, {});
+}
+
+export default api;
 

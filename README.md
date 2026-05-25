@@ -11,6 +11,7 @@ Hệ thống lưu trữ và chia sẻ file an toàn trên Azure Blob Storage s�
 secure-file-sharing/
 ├── backend/        # FastAPI + Azure SDK
 ├── frontend/       # React 18 + Vite + TypeScript + TailwindCSS
+├── locksend-ai/    # ML token security (Random Forest + optional HTTP service)
 ├── azure-deploy.md
 └── README.md
 ```
@@ -40,6 +41,19 @@ cd frontend
 npm install
 npm run dev
 ```
+
+### LockSend AI (tuỳ chọn — Admin Token Security)
+
+Monorepo: thư mục `locksend-ai/`. Backend mặc định load model local từ đó (hoặc `LOCKSEND_AI_URL` nếu host riêng Ubuntu).
+
+```bash
+cd locksend-ai
+pip install -r requirements.txt
+# Đặt CSV vào data/ (xem locksend-ai/data/README.md), rồi:
+python train.py
+```
+
+Chi tiết: [locksend-ai/README.md](./locksend-ai/README.md)
 
 ## Nguyên tắc bảo mật
 - Client-side encryption 100% — mã hóa/giải mã hoàn toàn ở trình duyệt

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import api from "../utils/api";
 import PageLoader, { LoadingSpinner } from "../components/LoadingSpinner";
+import { surfaceCard } from "../styles/theme";
 
 interface UserRow {
   id: string;
@@ -13,9 +14,6 @@ interface UserRow {
 
 const ROLE_OPTIONS = ["owner", "recipient", "admin"] as const;
 type Role = (typeof ROLE_OPTIONS)[number];
-
-const surfaceCard =
-  "rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-950/50 via-[#0c0e14]/95 to-violet-950/25 shadow-xl shadow-indigo-950/30";
 
 const ROLE_BADGE: Record<Role, string> = {
   owner: "bg-indigo-500/20 text-indigo-300 border border-indigo-500/35",
@@ -158,7 +156,7 @@ export default function AdminUsersPage() {
                     >
                       <td className="px-4 sm:px-5 py-3.5">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500/30 to-violet-600/30 border border-indigo-400/20 flex items-center justify-center text-indigo-200 font-semibold text-sm shrink-0">
+                          <div className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 font-semibold text-sm shrink-0">
                             {(u.display_name || u.email || "U")[0].toUpperCase()}
                           </div>
                           <div className="min-w-0">
