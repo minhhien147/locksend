@@ -1,6 +1,75 @@
 @import "tailwindcss";
 
+@source "./**/*.{tsx,ts,jsx,js}";
+@source "../index.html";
+
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* Auth — layout cố định (vẫn chạy nếu Tailwind lỗi / import nhầm style.css) */
+.ls-auth {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  min-height: 100vh;
+  width: 100%;
+  position: relative;
+}
+
+.ls-auth__shell {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  flex: 1;
+  width: 100%;
+  min-height: 100vh;
+  position: relative;
+  z-index: 20;
+  isolation: isolate;
+}
+
+.ls-auth-aside {
+  display: none;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+  padding: 2.5rem;
+  flex-shrink: 0;
+}
+
+.ls-auth-panel {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 1.5rem 2rem;
+  min-width: 0;
+}
+
+.ls-auth-aside img {
+  max-height: 2.75rem;
+  width: auto;
+  object-fit: contain;
+}
+
+@media (min-width: 1024px) {
+  .ls-auth-aside {
+    display: flex;
+    width: 42%;
+    max-width: 42%;
+  }
+}
+
+@media (min-width: 1280px) {
+  .ls-auth-aside {
+    width: 38%;
+    max-width: 38%;
+  }
+}
+
+#root {
+  min-height: 100vh;
+}
 
 /* ── Theme tokens ───────────────────────────────────────────────── */
 :root {
@@ -33,29 +102,30 @@ body {
 
 /* ── Floating icons — transform (GPU), luôn chạy trừ reduce-motion ─ */
 
+/* Chỉ panel trái login (~42% / 38% xl) */
 @keyframes ls-drift-1 {
-  0%, 100% { transform: translate(4vw, 10vh) rotate(-8deg); }
-  25%      { transform: translate(72vw, 8vh) rotate(6deg); }
-  50%      { transform: translate(78vw, 52vh) rotate(12deg); }
-  75%      { transform: translate(12vw, 72vh) rotate(-4deg); }
+  0%, 100% { transform: translate(4vw, 14vh) rotate(-8deg); }
+  25%      { transform: translate(28vw, 10vh) rotate(6deg); }
+  50%      { transform: translate(32vw, 52vh) rotate(12deg); }
+  75%      { transform: translate(8vw, 72vh) rotate(-4deg); }
 }
 
 @keyframes ls-drift-2 {
-  0%, 100% { transform: translate(70vw, 68vh) rotate(5deg); }
-  33%      { transform: translate(8vw, 58vh) rotate(-10deg); }
-  66%      { transform: translate(18vw, 14vh) rotate(8deg); }
+  0%, 100% { transform: translate(22vw, 68vh) rotate(5deg); }
+  33%      { transform: translate(6vw, 55vh) rotate(-10deg); }
+  66%      { transform: translate(12vw, 20vh) rotate(8deg); }
 }
 
 @keyframes ls-drift-3 {
-  0%, 100% { transform: translate(38vw, 78vh) rotate(-6deg); }
-  50%      { transform: translate(62vw, 28vh) rotate(10deg); }
+  0%, 100% { transform: translate(14vw, 78vh) rotate(-6deg); }
+  50%      { transform: translate(30vw, 35vh) rotate(10deg); }
 }
 
 @keyframes ls-drift-4 {
-  0%, 100% { transform: translate(58vw, 16vh) rotate(4deg); }
-  30%      { transform: translate(22vw, 10vh) rotate(-12deg); }
-  60%      { transform: translate(6vw, 44vh) rotate(6deg); }
-  90%      { transform: translate(44vw, 62vh) rotate(-5deg); }
+  0%, 100% { transform: translate(26vw, 16vh) rotate(4deg); }
+  30%      { transform: translate(8vw, 12vh) rotate(-12deg); }
+  60%      { transform: translate(4vw, 46vh) rotate(6deg); }
+  90%      { transform: translate(20vw, 62vh) rotate(-5deg); }
 }
 
 .ls-float-icon {

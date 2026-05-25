@@ -28,8 +28,8 @@ export function LockSendLogoHero() {
           aria-hidden
         />
       </div>
-      <span className="text-lg font-semibold tracking-tight text-white">
-        Lock<span className="text-indigo-400">Send</span>
+      <span className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+        Lock<span className="text-indigo-600 dark:text-indigo-400">Send</span>
       </span>
     </div>
   );

@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+/** Chỉ index.css — KHÔNG import style.css (file Vite cũ, sẽ vỡ layout). */
 import "./index.css";
 import App from "./App";
 

@@ -6,9 +6,9 @@ const ICON_BOX =
   "rounded-lg border border-slate-300/90 bg-white shadow-md flex items-center justify-center " +
   "dark:border-slate-600 dark:bg-slate-800/90 dark:shadow-lg dark:shadow-black/20";
 
-/** Layer icon — trên nền trang, dưới nội dung (z-20). */
+/** Layer nổi trên nền trang, dưới form (z-20+). */
 export const FLOATING_ICONS_LAYER =
-  "fixed inset-0 z-[12] pointer-events-none overflow-hidden";
+  "fixed inset-0 z-[8] pointer-events-none overflow-hidden";
 
 type Props = {
   containerClassName?: string;

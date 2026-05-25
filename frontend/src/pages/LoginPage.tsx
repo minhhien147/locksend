@@ -37,13 +37,13 @@ export default function LoginPage() {
 
   return (
     <AuthPageLayout>
-      <div className={shell.authAside}>
+      <div className={`ls-auth-aside ${shell.authAside}`}>
         <LockSendLogoHero />
         <AuthHero variant="login" />
         <p className={`text-[11px] ${text.faint}`}>FPT University · Information Security</p>
       </div>
 
-      <div className={shell.authPanel}>
+      <div className={`ls-auth-panel ${shell.authPanel}`}>
         <div className="absolute top-4 right-4 z-20">
           <ThemeToggle />
         </div>
