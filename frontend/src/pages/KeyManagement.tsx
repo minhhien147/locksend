@@ -40,7 +40,6 @@ import {
   keyField,
   inputBase,
   text,
-  panel,
   btnGhost,
   btn,
   header,
