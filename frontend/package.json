@@ -10,19 +10,19 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "start": "serve dist --single --listen 0.0.0.0:${PORT:-3000}"
+    "start": "serve dist --single --listen tcp://0.0.0.0:${PORT:-3000}"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
-    "serve": "^14.2.6",
     "tailwindcss": "^4.2.2",
     "typescript": "~5.9.3",
     "vite": "^8.0.1"
   },
   "dependencies": {
+    "serve": "^14.2.6",
     "@noble/curves": "^2.0.1",
     "axios": "^1.13.6",
     "react": "^19.2.4",
