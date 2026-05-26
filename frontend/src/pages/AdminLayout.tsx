@@ -4,9 +4,8 @@ import { surfaceCardAdmin as surfaceCard, text, nav } from "../styles/theme";
 export default function AdminLayout() {
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      <header className="space-y-1">
+      <header>
         <h1 className={`text-2xl font-bold ${text.primary} tracking-tight`}>Admin</h1>
-        <p className={`text-sm ${text.muted}`}>Quản lý tài khoản và công cụ kỹ thuật chỉ dành cho admin</p>
       </header>
 
       <nav className={`${surfaceCard} p-1.5 inline-flex flex-wrap gap-1`}>

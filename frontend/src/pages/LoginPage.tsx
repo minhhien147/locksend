@@ -56,10 +56,7 @@ export default function LoginPage() {
           </div>
 
           <Card className="space-y-6" padding="md">
-            <div>
-              <h1 className={`text-lg font-semibold ${text.primary}`}>Welcome back</h1>
-              <p className={`mt-1 text-sm ${text.muted}`}>Đăng nhập để tiếp tục</p>
-            </div>
+            <h1 className={`text-lg font-semibold ${text.primary}`}>Đăng nhập</h1>
 
             {error && <Alert tone="error">{error}</Alert>}
 

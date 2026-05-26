@@ -27,6 +27,7 @@ import {
   setKeys,
   isUnlocked,
   lockKeys,
+  clearAll,
 } from "../utils/keyVault";
 import {
   storeMyPublicKey,
@@ -39,10 +40,10 @@ import {
   keyField,
   inputBase,
   text,
-  label,
   panel,
   btnGhost,
   btn,
+  header,
 } from "../styles/theme";
 
 type PageState =
@@ -65,6 +66,7 @@ export default function KeyManagement() {
   const [newPassphrase, setNewPassphrase] = useState("");
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
   const [unlockPassphrase, setUnlockPassphrase] = useState("");
+  const [currentChangePassphrase, setCurrentChangePassphrase] = useState("");
   const [changePassphraseVal, setChangePassphraseVal] = useState("");
   const [changePhraseConfirm, setChangePhraseConfirm] = useState("");
   const [legacyPassphrase, setLegacyPassphrase] = useState("");
@@ -185,27 +187,60 @@ export default function KeyManagement() {
     }
   }
 
+  async function verifyCurrentPassphrase(
+    passphrase: string,
+    keys: UnlockedKeyPairs
+  ): Promise<boolean> {
+    const data = await fetchMyEncryptedKeyBlob();
+    if (!data.encrypted_key_blob) return false;
+    try {
+      const decrypted = await decryptKeyBlob(data.encrypted_key_blob, passphrase);
+      return (
+        toBase64(decrypted.x25519.privateKey) === toBase64(keys.x25519.privateKey) &&
+        toBase64(decrypted.ed25519.privateKey) === toBase64(keys.ed25519.privateKey)
+      );
+    } catch {
+      return false;
+    }
+  }
+
   async function handleChangePassphrase() {
     if (pageState.phase !== "unlocked") return;
+    if (!currentChangePassphrase) {
+      showStatus("Nhập passphrase hiện tại.", true);
+      return;
+    }
     const err = validatePassphrase(changePassphraseVal);
     if (err) { showStatus(err, true); return; }
     if (changePassphraseVal !== changePhraseConfirm) {
       showStatus("Passphrase mới xác nhận không khớp.", true);
       return;
     }
+    if (changePassphraseVal === currentChangePassphrase) {
+      showStatus("Passphrase mới phải khác passphrase hiện tại.", true);
+      return;
+    }
     setBusy(true);
     try {
+      const currentOk = await verifyCurrentPassphrase(
+        currentChangePassphrase,
+        pageState.keys
+      );
+      if (!currentOk) {
+        showStatus("Passphrase hiện tại không đúng.", true);
+        return;
+      }
       const blob = await encryptKeyBlob(
         pageState.keys.x25519,
         pageState.keys.ed25519,
         changePassphraseVal
       );
       await uploadToServer(pageState.keys, blob);
-      // Re-write session wrapper với passphrase mới (keys không đổi)
       await setKeys(pageState.keys);
+      setCurrentChangePassphrase("");
       setChangePassphraseVal("");
       setChangePhraseConfirm("");
-      showStatus("Đã đổi passphrase và cập nhật lên server.");
+      showStatus("Đã đổi passphrase.");
     } catch (e) {
       showStatus(e instanceof Error ? e.message : "Đổi passphrase thất bại.", true);
     } finally {
@@ -240,10 +275,10 @@ export default function KeyManagement() {
 
   function handleClear() {
     setDangerStep(null);
-    lockKeys();
+    clearAll();
     clearLegacyLocalStorage();
-    setPageState({ phase: "no_keys", hasLegacy: false });
-    showStatus("Đã xóa keypair khỏi phiên. Blob vẫn còn trên server (bảo vệ bằng passphrase).");
+    void loadState();
+    showStatus("Đã xóa key khỏi phiên.");
   }
 
   // ── Legacy migration ─────────────────────────────────────────────────────────
@@ -275,12 +310,9 @@ export default function KeyManagement() {
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-4">
       <header>
-        <h1 className={`text-2xl font-bold ${text.primary} tracking-tight`}>Quản lý Keypair</h1>
-        <p className={`mt-1 text-sm ${text.muted}`}>
-          Private key được mã hóa bằng passphrase (PBKDF2 + AES-256-GCM). Server chỉ lưu bản mã hóa — không bao giờ thấy private key hay passphrase.
-        </p>
+        <h1 className={`text-xl font-bold ${text.primary} tracking-tight`}>Keys</h1>
       </header>
 
       {/* Loading */}
@@ -296,14 +328,7 @@ export default function KeyManagement() {
           {/* Legacy migration banner */}
           {pageState.hasLegacy && (
             <div className="rounded-xl border border-amber-400/40 bg-amber-100/80 px-4 py-4 space-y-3 dark:border-amber-500/25 dark:bg-amber-500/8">
-              <div>
-                <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                  Phát hiện keypair cũ trong trình duyệt
-                </p>
-                <p className="text-xs text-amber-800/80 dark:text-amber-300/70 mt-0.5">
-                  Nhập passphrase để migrate lên server (zero-knowledge). Sau đó localStorage sẽ được xóa.
-                </p>
-              </div>
+              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">Key cũ (localStorage)</p>
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   type="password"
@@ -327,12 +352,9 @@ export default function KeyManagement() {
           )}
 
           {/* Generate new keys form */}
-          <div className={`${surfaceCard} p-6 sm:p-8 space-y-5`}>
+          <div className={`${surfaceCard} p-4 space-y-3`}>
             {!dangerStep ? (
               <>
-                <p className={`text-center font-medium ${text.secondary}`}>
-                  {pageState.hasLegacy ? "Hoặc tạo keypair hoàn toàn mới:" : "Chưa có keypair — hãy tạo mới:"}
-                </p>
                 <PassphraseFields
                   passphrase={newPassphrase}
                   confirm={confirmPassphrase}
@@ -344,7 +366,7 @@ export default function KeyManagement() {
                   type="button"
                   onClick={() => void handleGenerate()}
                   disabled={busy || !newPassphrase}
-                  className={`w-full ${btn.primary} disabled:opacity-40`}
+                  className={`${btnBlockPrimary} disabled:opacity-40`}
                 >
                   Tạo Keypair
                 </button>
@@ -356,49 +378,42 @@ export default function KeyManagement() {
 
       {/* Locked — enter passphrase */}
       {pageState.phase === "locked" && (
-        <div className={`${surfaceCard} p-6 sm:p-8 space-y-4`}>
-          <p className={`font-medium ${text.secondary}`}>Nhập passphrase để mở khóa</p>
-          <p className={`text-xs ${text.muted}`}>
-            Passphrase giải mã key lưu trên server trực tiếp trong trình duyệt, không gửi lên server.
-          </p>
+        <div className={`${surfaceCard} p-4 space-y-3`}>
           <PassphraseFields
             passphrase={unlockPassphrase}
             confirm=""
             onPassphraseChange={setUnlockPassphrase}
             onConfirmChange={() => {}}
             showConfirm={false}
+            passphraseLabel="Passphrase"
             disabled={busy}
           />
           <button
             type="button"
             onClick={() => void handleUnlock()}
             disabled={busy || !unlockPassphrase}
-            className={`w-full ${btn.primary} disabled:opacity-40`}
+            className={`${btnBlockPrimary} disabled:opacity-40`}
           >
             Mở khóa
           </button>
 
           {/* Legacy migration in locked state */}
           {hasLegacyLocalStorageKey() && (
-            <div className="rounded-lg border border-amber-400/30 bg-amber-50 dark:bg-amber-500/8 px-3 py-2.5 text-xs text-amber-800 dark:text-amber-200/80">
-              Vẫn còn key cũ trong localStorage.{" "}
-              <button
-                type="button"
-                onClick={() => clearLegacyLocalStorage()}
-                className="underline hover:no-underline"
-              >
-                Xóa
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => clearLegacyLocalStorage()}
+              className="text-xs text-amber-700 dark:text-amber-300/80 underline hover:no-underline"
+            >
+              Xóa key cũ (localStorage)
+            </button>
           )}
         </div>
       )}
 
       {/* Unlocked — show keys + management */}
       {pageState.phase === "unlocked" && (
-        <div className="space-y-5">
-          {/* Public Keys */}
-          <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[minmax(0,1fr)_24rem] lg:items-center">
+          <div className="flex flex-col gap-3 min-w-0 lg:justify-center">
             <KeyBlock
               title="X25519"
               accent="indigo"
@@ -415,77 +430,81 @@ export default function KeyManagement() {
             />
           </div>
 
-          <PrivateKeysSection keys={pageState.keys} copied={copied} onCopy={copyToClipboard} />
-
-          <div className={`${surfaceCard} p-4 sm:p-5 space-y-4`}>
-            {/* Sync public key */}
-            <div className="flex items-start gap-3 rounded-xl border border-cyan-400/35 bg-cyan-100/70 px-4 py-3 dark:border-cyan-500/20 dark:bg-cyan-500/8">
-              <p className="flex-1 text-xs text-cyan-900 dark:text-cyan-200/85">
-                Đồng bộ public key lên server để người khác tìm bạn theo email. Tự động lặp mỗi 30 phút khi đã mở khóa key.
-              </p>
+          <div className={`${surfaceCard} p-3 space-y-3 w-full max-w-md mx-auto lg:max-w-none lg:mx-0 lg:sticky lg:top-4`}>
+            <div
+              className={`flex items-center justify-between gap-2 pb-2 border-b ${header.divider}`}
+            >
+              <span className={`text-sm font-medium ${text.primary}`}>Quản lý phiên</span>
               <button
                 type="button"
                 onClick={() => void handleSyncToServer()}
                 disabled={syncing || dangerStep !== null}
-                className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-200/70 border border-cyan-400/45 text-cyan-900 disabled:opacity-50 dark:bg-cyan-500/20 dark:border-cyan-500/30 dark:text-cyan-300"
+                className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-medium ${btn.secondary} disabled:opacity-50`}
               >
-                {syncing ? "Đang đồng bộ…" : "Đồng bộ lên server"}
+                {syncing ? "…" : "Đồng bộ"}
               </button>
             </div>
 
-            {/* Change passphrase */}
-            <div className={`rounded-xl px-4 py-3 space-y-3 ${panel.subtle}`}>
-              <p className={`text-xs font-medium ${text.muted}`}>Đổi passphrase</p>
-              <PassphraseFields
-                passphrase={changePassphraseVal}
+            <section className="space-y-2">
+              <h3 className={`text-xs font-medium ${text.muted}`}>Đổi passphrase</h3>
+              <ChangePassphraseFields
+                compact
+                current={currentChangePassphrase}
+                next={changePassphraseVal}
                 confirm={changePhraseConfirm}
-                onPassphraseChange={setChangePassphraseVal}
+                onCurrentChange={setCurrentChangePassphrase}
+                onNextChange={setChangePassphraseVal}
                 onConfirmChange={setChangePhraseConfirm}
                 disabled={busy}
               />
               <button
                 type="button"
                 onClick={() => void handleChangePassphrase()}
-                disabled={busy || !changePassphraseVal}
-                className={`text-xs px-3 py-1.5 rounded-lg disabled:opacity-40 ${btnGhost}`}
+                disabled={
+                  busy ||
+                  !currentChangePassphrase ||
+                  !changePassphraseVal ||
+                  !changePhraseConfirm
+                }
+                className={`w-full ${btn.primary} disabled:opacity-40`}
               >
-                Cập nhật passphrase
+                Cập nhật
               </button>
-            </div>
+            </section>
 
-            {/* Action buttons */}
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button
-                type="button"
-                onClick={() => setDangerStep("replace-keys")}
-                disabled={dangerStep !== null}
-                className={`flex-1 ${btn.primary} disabled:opacity-40`}
-              >
-                Tạo Keypair mới
-              </button>
-              <button
-                type="button"
-                onClick={handleLock}
-                className={`sm:w-36 py-3 rounded-xl text-sm font-medium ${btnGhost}`}
-              >
-                Khóa phiên
-              </button>
-              <button
-                type="button"
-                onClick={() => setDangerStep("delete-keys")}
-                disabled={dangerStep !== null}
-                className="sm:w-36 py-3 rounded-xl text-sm font-medium border border-rose-400/50 text-rose-700 hover:bg-rose-100 disabled:opacity-40 dark:border-rose-500/30 dark:text-rose-400/95 dark:hover:bg-rose-500/10"
-              >
-                Xóa session…
-              </button>
-            </div>
+            <section className={`space-y-2 pt-1 border-t ${header.divider}`}>
+              <h3 className={`text-xs font-medium ${text.muted}`}>Thao tác</h3>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setDangerStep("replace-keys")}
+                  disabled={dangerStep !== null}
+                  className={`${btnGridSm} ${btn.secondary} disabled:opacity-40`}
+                >
+                  Keypair mới
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLock}
+                  className={`${btnGridSm} ${btn.secondary}`}
+                >
+                  Khóa phiên
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDangerStep("delete-keys")}
+                  disabled={dangerStep !== null}
+                  className={`${btnGridSm} ${btn.danger} disabled:opacity-40`}
+                >
+                  Xóa session
+                </button>
+              </div>
+            </section>
 
             {/* Danger: replace keys */}
             {dangerStep === "replace-keys" && (
-              <div className="rounded-xl border border-amber-400/40 bg-amber-100/80 px-4 py-3 space-y-3 dark:border-amber-500/25 dark:bg-amber-500/8">
-                <p className="text-sm text-amber-900 dark:text-amber-200/95">
-                  Tạo keypair mới sẽ thay thế keypair hiện tại trên server. Nhập passphrase mới:
-                </p>
+              <div className="rounded-lg border border-amber-400/40 bg-amber-100/80 px-3 py-3 space-y-2.5 dark:border-amber-500/25 dark:bg-amber-500/8">
+                <p className="text-sm text-amber-900 dark:text-amber-200/95">Thay keypair?</p>
                 <PassphraseFields
                   passphrase={newPassphrase}
                   confirm={confirmPassphrase}
@@ -493,33 +512,26 @@ export default function KeyManagement() {
                   onConfirmChange={setConfirmPassphrase}
                   disabled={busy}
                 />
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => setDangerStep(null)}
-                    className={`px-4 py-2 rounded-lg text-sm ${btnGhost}`}>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setDangerStep(null)} className={`flex-1 ${btnCompactGhost}`}>
                     Huỷ
                   </button>
-                  <button type="button" onClick={() => void handleGenerate()}
-                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-amber-200/80 text-amber-900 border border-amber-400/50 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/35">
-                    Xác nhận thay thế
+                  <button type="button" onClick={() => void handleGenerate()} className={`flex-1 ${btn.primary}`}>
+                    Xác nhận
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Danger: delete session */}
             {dangerStep === "delete-keys" && (
-              <div className="rounded-xl border border-rose-400/40 bg-rose-100/70 px-4 py-3 space-y-3 dark:border-rose-500/25 dark:bg-rose-950/30">
-                <p className="text-sm text-rose-800 dark:text-rose-200/95">
-                  Xóa keypair khỏi phiên hiện tại? Blob mã hóa vẫn còn trên server (an toàn). Bạn có thể mở khóa lại bằng passphrase bất cứ lúc nào.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => setDangerStep(null)}
-                    className={`px-4 py-2 rounded-lg text-sm ${btnGhost}`}>
+              <div className="rounded-lg border border-rose-400/40 bg-rose-100/70 px-3 py-3 space-y-2.5 dark:border-rose-500/25 dark:bg-rose-950/30">
+                <p className="text-sm text-rose-800 dark:text-rose-200/95">Xóa key khỏi phiên?</p>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setDangerStep(null)} className={`flex-1 ${btnCompactGhost}`}>
                     Huỷ
                   </button>
-                  <button type="button" onClick={handleClear}
-                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-rose-600/90 text-white">
-                    Xóa khỏi phiên
+                  <button type="button" onClick={handleClear} className={`flex-1 ${btnCompactDangerSolid}`}>
+                    Xóa
                   </button>
                 </div>
               </div>
@@ -531,7 +543,7 @@ export default function KeyManagement() {
       {/* Status message */}
       {status && (
         <div role="status"
-          className={`flex items-start gap-3 rounded-xl border px-4 py-3 text-sm ${
+          className={`rounded-lg border px-3 py-2 text-sm ${
             status.isError
               ? "border-rose-400/40 bg-rose-100/80 text-rose-800 dark:border-rose-500/20 dark:bg-rose-500/8 dark:text-rose-200/95"
               : "border-emerald-400/40 bg-emerald-100/80 text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/8 dark:text-emerald-200/95"
@@ -546,84 +558,165 @@ export default function KeyManagement() {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function PrivateKeysSection({
-  keys, copied, onCopy,
-}: { keys: UnlockedKeyPairs; copied: string | null; onCopy: (v: string, id: string) => void }) {
-  const [revealed, setRevealed] = useState(false);
+const btnBlockPrimary = `w-full ${btn.primary}`;
+/** Nút trong panel hẹp (3 cột) */
+const btnGridSm = "w-full min-h-[2rem] !px-2 !py-1.5 !text-xs";
+const inputCompact =
+  "w-full rounded-md px-2.5 py-1.5 text-sm " +
+  "bg-white border border-slate-300 text-slate-900 placeholder:text-slate-400 " +
+  "focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 " +
+  "disabled:opacity-50 " +
+  "dark:bg-[#14161e] dark:border-slate-700 dark:text-slate-100 dark:placeholder:text-slate-500 " +
+  "dark:focus:border-indigo-500 dark:focus:ring-indigo-500/25";
+const btnCompactGhost =
+  `inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium ${btnGhost}`;
+const btnCompactDangerSolid =
+  "w-full min-h-[2rem] rounded-md px-3 py-1.5 text-sm font-semibold bg-rose-600/90 text-white hover:bg-rose-600 disabled:opacity-40";
+
+const fieldLabel = `block mb-1 text-xs font-medium ${text.secondary}`;
+const fieldLabelCompact = `block mb-0.5 text-[11px] font-medium ${text.muted}`;
+
+function PasswordInput({
+  labelText,
+  value,
+  onChange,
+  disabled,
+  autoComplete,
+  compact,
+}: {
+  labelText: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  autoComplete: string;
+  compact?: boolean;
+}) {
   return (
-    <div className="rounded-2xl border border-rose-400/35 bg-rose-100/50 overflow-hidden dark:border-rose-500/20 dark:bg-rose-950/20">
-      <button type="button" onClick={() => setRevealed((v) => !v)}
-        className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-rose-200/40 dark:hover:bg-rose-500/5 transition">
-        <span className="text-sm font-medium text-rose-800 dark:text-rose-200/90">
-          {revealed ? "Ẩn private key" : "Hiện private key"}
-        </span>
-        <svg className={`w-4 h-4 text-rose-600/70 dark:text-rose-300/60 shrink-0 transition-transform ${revealed ? "rotate-180" : ""}`}
-          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {revealed && (
-        <div className="px-4 pb-4 space-y-3 border-t border-rose-400/30 dark:border-rose-500/15">
-          <p className="text-[11px] text-rose-700 dark:text-rose-300/70 leading-relaxed pt-3">
-            Chỉ hiện trong RAM (phiên này). Private key KHÔNG được lưu vào localStorage hay cookie. Không chia sẻ, không chụp màn hình.
-          </p>
-          <KeyBlock title="X25519" accent="indigo" kind="private"
-            value={toBase64(keys.x25519.privateKey)} copied={copied === "x25519-priv"}
-            onCopy={() => onCopy(toBase64(keys.x25519.privateKey), "x25519-priv")} />
-          <KeyBlock title="Ed25519" accent="violet" kind="private"
-            value={toBase64(keys.ed25519.privateKey)} copied={copied === "ed25519-priv"}
-            onCopy={() => onCopy(toBase64(keys.ed25519.privateKey), "ed25519-priv")} />
-        </div>
-      )}
+    <div>
+      <label className={compact ? fieldLabelCompact : fieldLabel}>{labelText}</label>
+      <input
+        type="password"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        autoComplete={autoComplete}
+        className={compact ? inputCompact : inputBase}
+      />
     </div>
   );
 }
 
 function PassphraseFields({
-  passphrase, confirm, onPassphraseChange, onConfirmChange, disabled, showConfirm = true,
+  passphrase,
+  confirm,
+  onPassphraseChange,
+  onConfirmChange,
+  disabled,
+  showConfirm = true,
+  passphraseLabel = "Passphrase",
+  confirmLabel = "Xác nhận",
 }: {
-  passphrase: string; confirm: string;
+  passphrase: string;
+  confirm: string;
   onPassphraseChange: (v: string) => void;
   onConfirmChange: (v: string) => void;
-  disabled?: boolean; showConfirm?: boolean;
+  disabled?: boolean;
+  showConfirm?: boolean;
+  passphraseLabel?: string;
+  confirmLabel?: string;
 }) {
   return (
     <div className="space-y-2">
-      <div>
-        <label className={`block mb-1 ${label}`}>Passphrase (tối thiểu 8 ký tự)</label>
-        <input type="password" value={passphrase} onChange={(e) => onPassphraseChange(e.target.value)}
-          disabled={disabled} autoComplete="new-password" className={inputBase} />
-      </div>
+      <PasswordInput
+        labelText={passphraseLabel}
+        value={passphrase}
+        onChange={onPassphraseChange}
+        disabled={disabled}
+        autoComplete="new-password"
+      />
       {showConfirm && (
-        <div>
-          <label className={`block mb-1 ${label}`}>Xác nhận passphrase</label>
-          <input type="password" value={confirm} onChange={(e) => onConfirmChange(e.target.value)}
-            disabled={disabled} autoComplete="new-password" className={inputBase} />
-        </div>
+        <PasswordInput
+          labelText={confirmLabel}
+          value={confirm}
+          onChange={onConfirmChange}
+          disabled={disabled}
+          autoComplete="new-password"
+        />
       )}
     </div>
   );
 }
 
-function KeyBlock({
-  title, accent, kind = "public", value, copied, onCopy,
+function ChangePassphraseFields({
+  current,
+  next,
+  confirm,
+  onCurrentChange,
+  onNextChange,
+  onConfirmChange,
+  disabled,
+  compact,
 }: {
-  title: string; accent: "indigo" | "violet"; kind?: "public" | "private";
+  current: string;
+  next: string;
+  confirm: string;
+  onCurrentChange: (v: string) => void;
+  onNextChange: (v: string) => void;
+  onConfirmChange: (v: string) => void;
+  disabled?: boolean;
+  compact?: boolean;
+}) {
+  const gap = compact ? "space-y-1.5" : "space-y-2";
+  return (
+    <div className={gap}>
+      <PasswordInput
+        compact={compact}
+        labelText="Passphrase hiện tại"
+        value={current}
+        onChange={onCurrentChange}
+        disabled={disabled}
+        autoComplete="current-password"
+      />
+      <PasswordInput
+        compact={compact}
+        labelText="Passphrase mới"
+        value={next}
+        onChange={onNextChange}
+        disabled={disabled}
+        autoComplete="new-password"
+      />
+      <PasswordInput
+        compact={compact}
+        labelText="Xác nhận mới"
+        value={confirm}
+        onChange={onConfirmChange}
+        disabled={disabled}
+        autoComplete="new-password"
+      />
+    </div>
+  );
+}
+
+function KeyBlock({
+  title, accent, value, copied, onCopy,
+}: {
+  title: string; accent: "indigo" | "violet";
   value: string; copied: boolean; onCopy: () => void;
 }) {
-  const ring = kind === "private" ? "ring-rose-400/20" : accent === "indigo" ? "ring-indigo-400/20" : "ring-violet-400/20";
-  const dot = kind === "private" ? "bg-rose-400" : accent === "indigo" ? "bg-indigo-400" : "bg-violet-400";
-  const labelColor = kind === "private" ? "text-rose-700 dark:text-rose-300" : accent === "indigo" ? "text-indigo-700 dark:text-indigo-300" : "text-violet-700 dark:text-violet-300";
+  const ring = accent === "indigo" ? "ring-indigo-400/20" : "ring-violet-400/20";
+  const dot = accent === "indigo" ? "bg-indigo-400" : "bg-violet-400";
+  const labelColor =
+    accent === "indigo" ? "text-indigo-700 dark:text-indigo-300" : "text-violet-700 dark:text-violet-300";
   return (
-    <div className={`${kind === "private" ? "rounded-xl border border-rose-400/35 bg-rose-50/90 dark:border-rose-500/15 dark:bg-[#0c0e14]/80" : surfaceCard} p-4 sm:p-5 ring-1 ${ring}`}>
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="min-w-0 flex items-center gap-2">
+    <div className={`${surfaceCard} p-3 ring-1 ${ring} h-full flex flex-col`}>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="min-w-0 flex items-center gap-1.5">
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
-          <span className={`text-xs font-bold uppercase tracking-wider ${labelColor}`}>{title}</span>
-          <span className={`text-[10px] font-medium normal-case ${kind === "private" ? "text-rose-600/80 dark:text-rose-400/60" : text.faint}`}>· {kind}</span>
+          <span className={`text-xs font-semibold ${labelColor}`}>{title}</span>
+          <span className={`text-[10px] ${text.faint}`}>public</span>
         </div>
         <button type="button" onClick={onCopy}
-          className={`shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition ${
+          className={`shrink-0 text-xs font-medium px-2 py-1 rounded-md border transition ${
             copied
               ? "border-emerald-500/40 text-emerald-700 bg-emerald-100 dark:border-emerald-500/30 dark:text-emerald-400 dark:bg-emerald-500/10"
               : accent === "indigo"
@@ -633,7 +726,9 @@ function KeyBlock({
           {copied ? "Đã copy" : "Copy"}
         </button>
       </div>
-      <div className={keyField}>{value}</div>
+      <div className={`${keyField} flex-1 min-h-[3.25rem] py-2.5 text-[12px] leading-relaxed`}>
+        {value}
+      </div>
     </div>
   );
 }

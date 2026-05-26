@@ -16,11 +16,7 @@ export default function ProtectedRoute({ children, requiredRole }: Props) {
   // Tránh flash redirect về /login trước khi biết session còn hạn không
   if (isLoading) {
     return (
-      <PageLoader
-        variant="fullscreen"
-        title="Đang kiểm tra phiên đăng nhập…"
-        description="Đang xác thực phiên làm việc với máy chủ."
-      />
+      <PageLoader variant="fullscreen" title="Đang tải…" />
     );
   }
 
@@ -31,16 +27,9 @@ export default function ProtectedRoute({ children, requiredRole }: Props) {
   if (requiredRole && user?.role !== requiredRole) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="text-5xl mb-4">🔒</div>
-        <h2 className="text-xl font-bold text-gray-800 mb-2">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-slate-200">
           Không có quyền truy cập
         </h2>
-        <p className="text-gray-500 text-sm">
-          Trang này yêu cầu quyền{" "}
-          <span className="font-semibold text-indigo-600">{requiredRole}</span>
-          . Tài khoản của bạn đang có quyền{" "}
-          <span className="font-semibold">{user?.role}</span>.
-        </p>
       </div>
     );
   }

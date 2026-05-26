@@ -24,7 +24,6 @@ import {
   sectionTitle,
   surfaceInset,
   panel,
-  btn,
 } from "../styles/theme";
 
 const formatFileSize = (bytes: number): string => {
@@ -61,8 +60,6 @@ export default function UploadPage() {
     error,
     chunkProgress,
     uploadPercent,
-    plaintextChecksum,
-    recipientCount,
     isChunkedMode,
     encryptAndUpload,
     reset,
@@ -177,8 +174,6 @@ export default function UploadPage() {
           copied={copied}
           onCopy={handleCopySasUrl}
           onReset={handleReset}
-          plaintextChecksum={plaintextChecksum}
-          recipientCount={recipientCount}
         />
       </div>
     );
@@ -186,10 +181,7 @@ export default function UploadPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-5">
-      <PageHeader
-        title="Mã hóa & Upload"
-        description="Chọn file, chỉ định người nhận, mã hóa client-side rồi upload lên Azure."
-      />
+      <PageHeader title="Upload" />
 
       <KeyUnlockBanner onUnlocked={onKeysUnlocked} />
 
@@ -222,10 +214,7 @@ export default function UploadPage() {
             {!isBusy && <p className={`text-xs ${text.faint}`}>Nhấp để đổi file</p>}
           </div>
         ) : (
-          <div className="space-y-1">
-            <p className={`text-sm font-medium ${text.secondary}`}>Kéo thả file vào đây</p>
-            <p className={`text-xs ${text.muted}`}>hoặc nhấp để chọn · mọi định dạng</p>
-          </div>
+          <p className={`text-sm font-medium ${text.secondary}`}>Kéo thả hoặc chọn file</p>
         )}
       </div>
 
@@ -329,18 +318,9 @@ export default function UploadPage() {
               )}
             </div>
             {keyError && <p className="text-xs text-rose-600 dark:text-rose-400">{keyError}</p>}
-            <p className={`text-xs ${text.muted}`}>
-              Chọn từng người nhận — file xuất hiện trong lịch sử của họ.
-              {file && file.size >= CHUNKED_THRESHOLD && (
-                <span className="text-amber-700 dark:text-amber-300"> File lớn: chỉ gửi được cho một người.</span>
-              )}
-            </p>
           </div>
         ) : (
           <div className="space-y-3">
-            <Alert tone="warning">
-              Chế độ dán key không tạo bản ghi inbox. Dùng <strong>Tìm user</strong> để người nhận thấy file trong lịch sử.
-            </Alert>
             <div>
               <label className={label}>X25519 Public Key (base64)</label>
               <textarea
@@ -429,49 +409,21 @@ function ChunkProgressBar({ progress }: { progress: ChunkProgress }) {
 }
 
 function DoneCard({
-  sasUrl, copied, onCopy, onReset, plaintextChecksum, recipientCount,
+  sasUrl, copied, onCopy, onReset,
 }: {
   sasUrl: string;
   copied: boolean;
   onCopy: () => void;
   onReset: () => void;
-  plaintextChecksum: string;
-  recipientCount: number;
 }) {
-  const [checksumCopied, setChecksumCopied] = useState(false);
-
-  function handleCopyChecksum() {
-    navigator.clipboard.writeText(plaintextChecksum);
-    setChecksumCopied(true);
-    setTimeout(() => setChecksumCopied(false), 2000);
-  }
-
   return (
     <div className="space-y-5">
-      <PageHeader title="Mã hóa & Upload" />
+      <PageHeader title="Upload" />
 
-      <Alert tone="success">
-        <p className="font-medium">Upload thành công</p>
-        <p className={`text-xs mt-1 ${text.muted}`}>
-          File đã mã hóa và lưu trên Azure.
-          {recipientCount > 1 && ` Đã chia sẻ cho ${recipientCount} người nhận.`}
-        </p>
-      </Alert>
-
-      {plaintextChecksum && (
-        <Card padding="sm" className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className={label}>SHA-256 checksum</span>
-            <button type="button" onClick={handleCopyChecksum} className={`text-xs ${btn.ghost}`}>
-              {checksumCopied ? "Đã copy" : "Copy"}
-            </button>
-          </div>
-          <p className={`text-xs font-mono break-all ${text.muted}`}>{plaintextChecksum}</p>
-        </Card>
-      )}
+      <Alert tone="success">Upload thành công</Alert>
 
       <Card className="space-y-3">
-        <label className={label}>SAS link chia sẻ</label>
+        <label className={label}>SAS link</label>
         <div className="flex gap-2">
           <input readOnly value={sasUrl} className={`flex-1 text-xs font-mono ${inputBase}`} />
           <Button variant="secondary" onClick={onCopy}>

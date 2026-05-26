@@ -50,10 +50,7 @@ export default function HistoryPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-5">
-      <PageHeader
-        title="Lịch sử"
-        description="Upload, tải xuống và file được chia sẻ với bạn."
-      />
+      <PageHeader title="Lịch sử" />
 
       <div className={tabs.wrap}>
         {TAB_CONFIG.map((t) => (
@@ -117,11 +114,7 @@ function UploadHistory() {
 
   if (loading) {
     return (
-      <PageLoader
-        variant="embedded"
-        title="Đang tải lịch sử upload…"
-        description="Đang lấy danh sách file từ máy chủ."
-      />
+      <PageLoader variant="embedded" title="Đang tải…" />
     );
   }
 
@@ -387,15 +380,7 @@ function InboxHistory() {
 
       {files.length === 0 ? (
         <div className="space-y-3">
-          <EmptyState icon="inbox" message="Hộp nhận trống. Khi ai đó chia sẻ file với bạn, chúng sẽ xuất hiện tại đây." />
-          <div className="flex items-start gap-2.5 bg-indigo-500/8 border border-indigo-500/15 rounded-xl px-4 py-3 mx-auto max-w-sm">
-            <svg className="w-3.5 h-3.5 text-indigo-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <p className="text-[11px] text-indigo-300/70 leading-relaxed">
-              Để nhận file: hãy đảm bảo bạn đã <span className="font-semibold text-indigo-300">đồng bộ public key</span> lên server (trang Quản lý Keys). Người gửi phải dùng chế độ <span className="font-semibold text-indigo-300">Tìm user</span> khi upload.
-            </p>
-          </div>
+          <EmptyState icon="inbox" message="Trống" />
         </div>
       ) : (
         files.map((f) => <SharedFileCard key={f.file_id} item={f} />)
@@ -531,7 +516,7 @@ function DownloadHistory() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          {items.length === 0 ? "Chưa có lịch sử." : `${items.length} lần tải xuống (lưu trên trình duyệt này)`}
+          {items.length > 0 ? `${items.length} mục` : ""}
         </p>
         {items.length > 0 && (
           <button onClick={handleClearAll}
@@ -542,7 +527,7 @@ function DownloadHistory() {
       </div>
 
       {items.length === 0 ? (
-        <EmptyState icon="download" message="Chưa có file nào được tải xuống trên trình duyệt này." />
+        <EmptyState icon="download" message="Trống" />
       ) : (
         items.map((item) => {
           const isExpanded = expandedId === item.id;
@@ -612,11 +597,6 @@ function DownloadHistory() {
         })
       )}
 
-      {items.length > 0 && (
-        <p className="text-[11px] text-white/20 text-center pt-2">
-          Lịch sử lưu trong localStorage của trình duyệt này · Xóa dữ liệu trình duyệt sẽ mất lịch sử
-        </p>
-      )}
     </div>
   );
 }

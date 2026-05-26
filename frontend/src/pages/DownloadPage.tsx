@@ -6,7 +6,6 @@ import PageHeader from "../components/ui/PageHeader";
 import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import Alert from "../components/ui/Alert";
-import Badge from "../components/ui/Badge";
 import { inputBase, text, label, surfaceInset } from "../styles/theme";
 
 export default function DownloadPage() {
@@ -18,7 +17,6 @@ export default function DownloadPage() {
     fileName,
     chunkProgress,
     isChunkedFile,
-    verifiedMeta,
     downloadAndDecrypt,
     reset,
   } = useDownload();
@@ -27,10 +25,7 @@ export default function DownloadPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-5">
-      <PageHeader
-        title="Tải & Giải mã"
-        description="Dán SAS link, xác minh chữ ký và giải mã file trên trình duyệt."
-      />
+      <PageHeader title="Download" />
 
       <KeyUnlockBanner onUnlocked={() => setUnlockTick((n) => n + 1)} />
 
@@ -56,61 +51,21 @@ export default function DownloadPage() {
         )}
 
         {stage === "decrypting" && !isChunkedFile && (
-          <Alert tone="info">
-            <span className="inline-flex items-center gap-2">
-              <LoadingSpinner size="sm" />
-              Đang giải mã (Ed25519 + AES-256-GCM)…
-            </span>
-          </Alert>
+          <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+            <LoadingSpinner size="sm" />
+            Đang giải mã…
+          </div>
         )}
 
         {stage === "downloading" && (
-          <Alert tone="info">
-            <span className="inline-flex items-center gap-2">
-              <LoadingSpinner size="sm" />
-              Đang tải ciphertext từ Azure…
-            </span>
-          </Alert>
+          <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+            <LoadingSpinner size="sm" />
+            Đang tải…
+          </div>
         )}
 
         {stage === "done" && (
-          <div className="space-y-3">
-            <Alert tone="success">
-              <p className="font-medium">Giải mã thành công</p>
-              <p className={`text-xs mt-1 ${text.muted}`}>
-                <span className={text.secondary}>{fileName}</span> đã được lưu về máy.
-              </p>
-            </Alert>
-            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {(isChunkedFile
-                ? [
-                    "Manifest Ed25519 hợp lệ",
-                    "AES-GCM tag mỗi chunk OK",
-                    "SHA-256 chunk khớp manifest",
-                    "File toàn vẹn",
-                  ]
-                : [
-                    "Chữ ký Ed25519 hợp lệ",
-                    "AES-GCM tag hợp lệ",
-                    ...(verifiedMeta?.plaintextChecksum ? ["SHA-256 plaintext khớp"] : []),
-                    "File toàn vẹn",
-                  ]
-              ).map((check) => (
-                <li key={check} className={`flex items-center gap-2 text-xs ${text.muted}`}>
-                  <Badge tone="success">✓</Badge>
-                  {check}
-                </li>
-              ))}
-            </ul>
-            {verifiedMeta?.plaintextChecksum && (
-              <div className={`${surfaceInset} p-3 space-y-1`}>
-                <p className={label}>SHA-256 đã xác minh</p>
-                <p className={`text-xs font-mono break-all ${text.muted}`}>
-                  {verifiedMeta.plaintextChecksum}
-                </p>
-              </div>
-            )}
-          </div>
+          <Alert tone="success">{fileName || "Xong"}</Alert>
         )}
 
         <div className="flex gap-3 pt-1">

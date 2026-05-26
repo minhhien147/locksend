@@ -78,10 +78,7 @@ export default function RegisterPage() {
           </div>
 
           <Card className="space-y-6" padding="md">
-            <div>
-              <h1 className={`text-lg font-semibold ${text.primary}`}>Tạo tài khoản</h1>
-              <p className={`mt-1 text-sm ${text.muted}`}>Miễn phí · không quảng cáo</p>
-            </div>
+            <h1 className={`text-lg font-semibold ${text.primary}`}>Đăng ký</h1>
 
             {error && <Alert tone="error">{error}</Alert>}
 
