@@ -2,7 +2,7 @@ import FloatingCryptoIcons from "./FloatingCryptoIcons";
 import { shell } from "../styles/theme";
 
 /**
- * Nền trái z-0 · icon z-12 · shell z-20 (2 cột login/register).
+ * z-0 nền trái · z-8 icon (dưới UI) · z-20 shell login/register.
  */
 export default function AuthPageLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -12,7 +12,7 @@ export default function AuthPageLayout({ children }: { children: React.ReactNode
         aria-hidden
       />
 
-      <FloatingCryptoIcons containerClassName="fixed inset-0 z-[12] pointer-events-none overflow-hidden hidden lg:block [clip-path:polygon(0_0,42%_0,42%_100%,0_100%)] xl:[clip-path:polygon(0_0,38%_0,38%_100%,0_100%)]" />
+      <FloatingCryptoIcons containerClassName="fixed inset-0 z-[8] pointer-events-none overflow-hidden hidden lg:block" />
 
       <div className="ls-auth__shell">{children}</div>
     </div>

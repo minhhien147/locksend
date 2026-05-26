@@ -10,10 +10,11 @@ export const shell = {
   authAsideBg:
     "border-r border-slate-200/90 bg-[#f3f4f8] dark:border-slate-800/90 dark:bg-[#0f1219]",
   authAside:
-    "hidden lg:flex lg:w-[42%] xl:w-[38%] relative z-20 flex-col justify-between p-10 xl:p-14 bg-transparent",
+    "hidden lg:flex lg:w-[42%] xl:w-[38%] relative z-20 flex-col justify-between p-10 xl:p-14 " +
+    "bg-[#f3f4f8] dark:bg-[#0f1219]",
   authPanel:
     "flex-1 relative z-20 flex items-center justify-center p-6 sm:p-10 " +
-    "bg-[#e8eaef] dark:bg-[#0b0d12] lg:bg-transparent",
+    "bg-[#e8eaef] dark:bg-[#0b0d12]",
 };
 
 /** Card chính — không gradient */

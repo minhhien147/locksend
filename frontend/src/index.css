@@ -102,30 +102,30 @@ body {
 
 /* ── Floating icons — transform (GPU), luôn chạy trừ reduce-motion ─ */
 
-/* Chỉ panel trái login (~42% / 38% xl) */
+/* Bay khắp viewport (vw/vh) */
 @keyframes ls-drift-1 {
-  0%, 100% { transform: translate(4vw, 14vh) rotate(-8deg); }
-  25%      { transform: translate(28vw, 10vh) rotate(6deg); }
-  50%      { transform: translate(32vw, 52vh) rotate(12deg); }
-  75%      { transform: translate(8vw, 72vh) rotate(-4deg); }
+  0%, 100% { transform: translate(6vw, 12vh) rotate(-8deg); }
+  25%      { transform: translate(78vw, 18vh) rotate(6deg); }
+  50%      { transform: translate(82vw, 72vh) rotate(12deg); }
+  75%      { transform: translate(12vw, 78vh) rotate(-4deg); }
 }
 
 @keyframes ls-drift-2 {
-  0%, 100% { transform: translate(22vw, 68vh) rotate(5deg); }
-  33%      { transform: translate(6vw, 55vh) rotate(-10deg); }
-  66%      { transform: translate(12vw, 20vh) rotate(8deg); }
+  0%, 100% { transform: translate(72vw, 68vh) rotate(5deg); }
+  33%      { transform: translate(8vw, 58vh) rotate(-10deg); }
+  66%      { transform: translate(18vw, 14vh) rotate(8deg); }
 }
 
 @keyframes ls-drift-3 {
-  0%, 100% { transform: translate(14vw, 78vh) rotate(-6deg); }
-  50%      { transform: translate(30vw, 35vh) rotate(10deg); }
+  0%, 100% { transform: translate(10vw, 82vh) rotate(-6deg); }
+  50%      { transform: translate(68vw, 38vh) rotate(10deg); }
 }
 
 @keyframes ls-drift-4 {
-  0%, 100% { transform: translate(26vw, 16vh) rotate(4deg); }
-  30%      { transform: translate(8vw, 12vh) rotate(-12deg); }
-  60%      { transform: translate(4vw, 46vh) rotate(6deg); }
-  90%      { transform: translate(20vw, 62vh) rotate(-5deg); }
+  0%, 100% { transform: translate(76vw, 10vh) rotate(4deg); }
+  30%      { transform: translate(6vw, 8vh) rotate(-12deg); }
+  60%      { transform: translate(4vw, 48vh) rotate(6deg); }
+  90%      { transform: translate(58vw, 80vh) rotate(-5deg); }
 }
 
 .ls-float-icon {

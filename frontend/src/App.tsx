@@ -61,9 +61,10 @@ function AppShell() {
   const initials = (user?.display_name || user?.email || "U").slice(0, 2).toUpperCase();
 
   return (
-    <div className={shell.page}>
+    <div className={`${shell.page} relative`}>
       <FloatingCryptoIcons />
 
+      <div className="relative z-20 flex flex-col flex-1 min-h-screen w-full">
       {/* ── Top navigation bar ── */}
       <header className={header.bar}>
         <div className="max-w-6xl mx-auto px-5 h-14 flex items-center justify-between gap-4">
@@ -125,7 +126,7 @@ function AppShell() {
       </header>
 
       {/* ── Page content ── */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-5 py-8 relative z-10">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-5 py-8">
         <Routes>
           <Route path="/" element={isRecipient ? <DownloadPage /> : <UploadPage />} />
           <Route path="/download" element={<DownloadPage />} />
@@ -159,6 +160,7 @@ function AppShell() {
         onClose={() => setPwdOpen(false)}
         onSubmit={(current, next) => changePassword(current, next)}
       />
+      </div>
     </div>
   );
 }
