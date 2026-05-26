@@ -434,12 +434,30 @@ export async function storeMyPublicKey(params: {
   externalId: string;
   publicKeyX25519: string;
   publicKeyEd25519: string;
+  encryptedKeyBlob?: string;
 }): Promise<void> {
   await api.post("/keys", {
     user_id: params.externalId,
     public_key_x25519: params.publicKeyX25519,
     public_key_ed25519: params.publicKeyEd25519,
+    ...(params.encryptedKeyBlob ? { encrypted_key_blob: params.encryptedKeyBlob } : {}),
   });
+}
+
+/** Lấy encrypted blob (zero-knowledge) của user đang đăng nhập từ server. */
+export async function fetchMyEncryptedKeyBlob(): Promise<{
+  encrypted_key_blob: string | null;
+  has_keys: boolean;
+  public_key_x25519?: string;
+  public_key_ed25519?: string;
+}> {
+  const res = await api.get<{
+    encrypted_key_blob: string | null;
+    has_keys: boolean;
+    public_key_x25519?: string;
+    public_key_ed25519?: string;
+  }>("/keys/my-encrypted-blob");
+  return res.data;
 }
 
 // ── Shared With Me ────────────────────────────────────────────────────────────

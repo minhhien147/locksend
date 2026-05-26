@@ -2,11 +2,11 @@ import { useState } from "react";
 import {
   decryptFile,
   decryptFileChunked,
-  loadKeysFromStorage,
   downloadBlob,
   type ChunkedEncryptionMetadata,
   type EncryptionMetadata,
 } from "../utils/crypto";
+import { getKeys } from "../utils/keyVault";
 import { downloadCiphertext, recordDownloadLog } from "../utils/api";
 import { saveDownloadEntry } from "../utils/downloadHistory";
 
@@ -57,7 +57,7 @@ export function useDownload(): UseDownloadReturn {
       return;
     }
 
-    const myKeys = loadKeysFromStorage();
+    const myKeys = getKeys();
     if (!myKeys) {
       setState((prev) => ({
         ...prev,

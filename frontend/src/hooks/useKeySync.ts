@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { isKeysUnlocked } from "../utils/crypto";
+import { isUnlocked } from "../utils/keyVault";
 import { KEY_SYNC_INTERVAL_MS, syncPublicKeysToServer } from "../utils/keySync";
 
 /**
@@ -12,7 +12,7 @@ export function useKeySync(enabled: boolean): void {
     if (!enabled) return;
 
     const run = () => {
-      if (!isKeysUnlocked()) return;
+      if (!isUnlocked()) return;
       void syncPublicKeysToServer();
     };
 

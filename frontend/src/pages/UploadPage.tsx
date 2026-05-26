@@ -1,12 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Link } from "react-router-dom";
 import {
   CHUNKED_THRESHOLD,
   DEFAULT_CHUNK_SIZE,
-  loadKeysFromStorage,
-  hasKeysInStorage,
   fromBase64,
 } from "../utils/crypto";
+import { isUnlocked } from "../utils/keyVault";
 import { useUpload, type ChunkProgress, type RecipientUser } from "../hooks/useUpload";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import KeyUnlockBanner from "../components/KeyUnlockBanner";
@@ -41,8 +39,7 @@ const CHUNK_MB = DEFAULT_CHUNK_SIZE / (1024 * 1024);
 type RecipientMode = "search" | "manual";
 
 export default function UploadPage() {
-  const [keysReady, setKeysReady] = useState(() => !!loadKeysFromStorage());
-  const hasKeys = hasKeysInStorage();
+  const [keysReady, setKeysReady] = useState(() => isUnlocked());
   const canUseKeys = keysReady;
   const [file, setFile] = useState<File | null>(null);
   const [recipientPublicKey, setRecipientPublicKey] = useState("");
@@ -72,7 +69,7 @@ export default function UploadPage() {
   } = useUpload();
 
   const onKeysUnlocked = () => {
-    setKeysReady(!!loadKeysFromStorage());
+    setKeysReady(isUnlocked());
     void syncPublicKeysToServer();
   };
 
@@ -194,17 +191,7 @@ export default function UploadPage() {
         description="Chọn file, chỉ định người nhận, mã hóa client-side rồi upload lên Azure."
       />
 
-      {hasKeys && <KeyUnlockBanner onUnlocked={onKeysUnlocked} />}
-
-      {!hasKeys && (
-        <Alert tone="warning">
-          Bạn chưa có keypair.{" "}
-          <Link to="/keys" className="font-medium text-indigo-600 dark:text-indigo-400 underline underline-offset-2">
-            Vào trang Keys để tạo
-          </Link>{" "}
-          trước khi upload.
-        </Alert>
-      )}
+      <KeyUnlockBanner onUnlocked={onKeysUnlocked} />
 
       <div
         onDrop={handleDrop}

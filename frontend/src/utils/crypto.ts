@@ -629,7 +629,7 @@ export async function decryptFileChunked(
   return result;
 }
 
-// ─── Key Storage (localStorage, passphrase-encrypted) ─────────────────────────
+// ─── Key Types ────────────────────────────────────────────────────────────────
 
 export interface StoredKeyPair {
   x25519: { privateKey: string; publicKey: string };
@@ -641,7 +641,8 @@ export type UnlockedKeyPairs = {
   ed25519: KeyPair;
 };
 
-interface EncryptedKeyEnvelope {
+/** Format blob lưu trên server: PBKDF2 + AES-256-GCM bọc private key. */
+export interface EncryptedKeyEnvelope {
   v: 1;
   kdf: "PBKDF2";
   hash: "SHA-256";
@@ -649,20 +650,58 @@ interface EncryptedKeyEnvelope {
   salt: string;
   cipher: "AES-GCM";
   iv: string;
-  ciphertext: string;
+  ciphertext: string; // JSON(StoredKeyPair) đã mã hóa
 }
 
-const KEY_STORAGE_KEY = "secure_file_sharing_keys";
 const PBKDF2_ITERATIONS = 310_000;
 const MIN_PASSPHRASE_LEN = 8;
 
-let _sessionKeys: UnlockedKeyPairs | null = null;
+export function validatePassphrase(passphrase: string): string | null {
+  if (passphrase.length < MIN_PASSPHRASE_LEN) {
+    return `Passphrase cần ít nhất ${MIN_PASSPHRASE_LEN} ký tự.`;
+  }
+  return null;
+}
 
-function storedPayloadFromKeyPairs(
+// ─── Passphrase KDF ───────────────────────────────────────────────────────────
+
+async function _derivePassphraseKey(
+  passphrase: string,
+  salt: Uint8Array,
+  iterations: number
+): Promise<CryptoKey> {
+  const km = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(passphrase),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: toArrayBuffer(salt), iterations, hash: "SHA-256" },
+    km,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+// ─── Server-stored encrypted blob API ────────────────────────────────────────
+
+/**
+ * Mã hóa keypair bằng passphrase → trả về JSON string (EncryptedKeyEnvelope)
+ * sẵn sàng upload lên server.
+ * Server chỉ lưu blob này, không bao giờ thấy private key hay passphrase.
+ */
+export async function encryptKeyBlob(
   x25519Keys: KeyPair,
-  ed25519Keys: KeyPair
-): StoredKeyPair {
-  return {
+  ed25519Keys: KeyPair,
+  passphrase: string
+): Promise<string> {
+  const err = validatePassphrase(passphrase);
+  if (err) throw new Error(err);
+
+  const payload: StoredKeyPair = {
     x25519: {
       privateKey: toBase64(x25519Keys.privateKey),
       publicKey: toBase64(x25519Keys.publicKey),
@@ -672,115 +711,18 @@ function storedPayloadFromKeyPairs(
       publicKey: toBase64(ed25519Keys.publicKey),
     },
   };
-}
 
-function keyPairsFromStored(stored: StoredKeyPair): UnlockedKeyPairs {
-  return {
-    x25519: {
-      privateKey: fromBase64(stored.x25519.privateKey),
-      publicKey: fromBase64(stored.x25519.publicKey),
-    },
-    ed25519: {
-      privateKey: fromBase64(stored.ed25519.privateKey),
-      publicKey: fromBase64(stored.ed25519.publicKey),
-    },
-  };
-}
-
-function isEncryptedEnvelope(value: unknown): value is EncryptedKeyEnvelope {
-  if (!value || typeof value !== "object") return false;
-  const o = value as EncryptedKeyEnvelope;
-  return o.v === 1 && o.cipher === "AES-GCM" && typeof o.ciphertext === "string";
-}
-
-function isLegacyPlainStored(value: unknown): value is StoredKeyPair {
-  if (!value || typeof value !== "object") return false;
-  const o = value as StoredKeyPair;
-  return (
-    typeof o.x25519?.privateKey === "string" &&
-    typeof o.ed25519?.privateKey === "string"
-  );
-}
-
-export function validatePassphrase(passphrase: string): string | null {
-  if (passphrase.length < MIN_PASSPHRASE_LEN) {
-    return `Passphrase cần ít nhất ${MIN_PASSPHRASE_LEN} ký tự.`;
-  }
-  return null;
-}
-
-export function hasKeysInStorage(): boolean {
-  return localStorage.getItem(KEY_STORAGE_KEY) !== null;
-}
-
-export function isEncryptedKeyStorage(): boolean {
-  const raw = localStorage.getItem(KEY_STORAGE_KEY);
-  if (!raw) return false;
-  try {
-    return isEncryptedEnvelope(JSON.parse(raw));
-  } catch {
-    return false;
-  }
-}
-
-export function isLegacyPlainKeyStorage(): boolean {
-  const raw = localStorage.getItem(KEY_STORAGE_KEY);
-  if (!raw) return false;
-  try {
-    return isLegacyPlainStored(JSON.parse(raw));
-  } catch {
-    return false;
-  }
-}
-
-export function isKeysUnlocked(): boolean {
-  return _sessionKeys !== null;
-}
-
-export function lockKeysInSession(): void {
-  _sessionKeys = null;
-}
-
-async function derivePassphraseAesKey(
-  passphrase: string,
-  salt: Uint8Array,
-  iterations: number
-): Promise<CryptoKey> {
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(passphrase),
-    "PBKDF2",
-    false,
-    ["deriveKey"]
-  );
-  return crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: toArrayBuffer(salt),
-      iterations,
-      hash: "SHA-256",
-    },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
-  );
-}
-
-async function encryptStoredPayload(
-  payload: StoredKeyPair,
-  passphrase: string
-): Promise<EncryptedKeyEnvelope> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const aesKey = await derivePassphraseAesKey(passphrase, salt, PBKDF2_ITERATIONS);
+  const aesKey = await _derivePassphraseKey(passphrase, salt, PBKDF2_ITERATIONS);
   const plaintext = new TextEncoder().encode(JSON.stringify(payload));
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv: toArrayBuffer(iv) },
     aesKey,
     plaintext
   );
-  return {
+
+  const envelope: EncryptedKeyEnvelope = {
     v: 1,
     kdf: "PBKDF2",
     hash: "SHA-256",
@@ -790,127 +732,117 @@ async function encryptStoredPayload(
     iv: toBase64(iv),
     ciphertext: toBase64(new Uint8Array(encrypted)),
   };
+  return JSON.stringify(envelope);
 }
 
-async function decryptStoredPayload(
-  envelope: EncryptedKeyEnvelope,
-  passphrase: string
-): Promise<StoredKeyPair> {
-  const salt = fromBase64(envelope.salt);
-  const iv = fromBase64(envelope.iv);
-  const aesKey = await derivePassphraseAesKey(
-    passphrase,
-    salt,
-    envelope.iterations
-  );
-  const decrypted = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: toArrayBuffer(iv) },
-    aesKey,
-    toArrayBuffer(fromBase64(envelope.ciphertext))
-  );
-  const parsed: unknown = JSON.parse(new TextDecoder().decode(decrypted));
-  if (!isLegacyPlainStored(parsed)) {
-    throw new Error("INVALID_PAYLOAD");
-  }
-  return parsed;
-}
-
-/** Lưu keypair đã mã hóa bằng passphrase (PBKDF2 + AES-256-GCM). */
-export async function saveKeysToStorage(
-  x25519Keys: KeyPair,
-  ed25519Keys: KeyPair,
-  passphrase: string
-): Promise<void> {
-  const err = validatePassphrase(passphrase);
-  if (err) throw new Error(err);
-
-  const payload = storedPayloadFromKeyPairs(x25519Keys, ed25519Keys);
-  const envelope = await encryptStoredPayload(payload, passphrase);
-  localStorage.setItem(KEY_STORAGE_KEY, JSON.stringify(envelope));
-  _sessionKeys = { x25519: x25519Keys, ed25519: ed25519Keys };
-}
-
-/** Giải mã keypair từ localStorage và giữ trong session (đến khi refresh / lock). */
-export async function unlockKeysFromStorage(
+/**
+ * Giải mã blob (EncryptedKeyEnvelope JSON) bằng passphrase.
+ * Dùng khi user đăng nhập và nhập passphrase để lấy private key.
+ * Throws "WRONG_PASSPHRASE" | "INVALID_BLOB" khi thất bại.
+ */
+export async function decryptKeyBlob(
+  blobJson: string,
   passphrase: string
 ): Promise<UnlockedKeyPairs> {
-  const raw = localStorage.getItem(KEY_STORAGE_KEY);
-  if (!raw) throw new Error("NO_KEYS");
+  let envelope: EncryptedKeyEnvelope;
+  try {
+    envelope = JSON.parse(blobJson) as EncryptedKeyEnvelope;
+    if (envelope.v !== 1 || envelope.cipher !== "AES-GCM") {
+      throw new Error("bad format");
+    }
+  } catch {
+    throw new Error("INVALID_BLOB");
+  }
+
+  const salt = fromBase64(envelope.salt);
+  const iv = fromBase64(envelope.iv);
+  const aesKey = await _derivePassphraseKey(passphrase, salt, envelope.iterations);
+
+  let decrypted: ArrayBuffer;
+  try {
+    decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: toArrayBuffer(iv) },
+      aesKey,
+      toArrayBuffer(fromBase64(envelope.ciphertext))
+    );
+  } catch {
+    throw new Error("WRONG_PASSPHRASE");
+  }
+
+  const payload = JSON.parse(new TextDecoder().decode(decrypted)) as StoredKeyPair;
+  if (
+    typeof payload.x25519?.privateKey !== "string" ||
+    typeof payload.ed25519?.privateKey !== "string"
+  ) {
+    throw new Error("INVALID_BLOB");
+  }
+
+  return {
+    x25519: {
+      privateKey: fromBase64(payload.x25519.privateKey),
+      publicKey: fromBase64(payload.x25519.publicKey),
+    },
+    ed25519: {
+      privateKey: fromBase64(payload.ed25519.privateKey),
+      publicKey: fromBase64(payload.ed25519.publicKey),
+    },
+  };
+}
+
+// ─── Legacy localStorage helpers (dùng cho migration) ────────────────────────
+
+const _LEGACY_KEY = "secure_file_sharing_keys";
+
+/** Detect legacy localStorage key để offer migration. */
+export function hasLegacyLocalStorageKey(): boolean {
+  try { return localStorage.getItem(_LEGACY_KEY) !== null; } catch { return false; }
+}
+
+/** Đọc legacy blob từ localStorage để migrate. Returns null nếu không có. */
+export function getLegacyLocalStorageBlob(): string | null {
+  try { return localStorage.getItem(_LEGACY_KEY); } catch { return null; }
+}
+
+/** Xóa legacy key khỏi localStorage sau khi đã migrate xong. */
+export function clearLegacyLocalStorage(): void {
+  try { localStorage.removeItem(_LEGACY_KEY); } catch { /* ignore */ }
+}
+
+/**
+ * Đọc và giải mã legacy localStorage key (PBKDF2+AES-GCM format cũ).
+ * Dùng cho migration path: đọc key cũ → upload lên server → xóa localStorage.
+ * Throws "NO_LEGACY" | "WRONG_PASSPHRASE" | "INVALID_STORAGE"
+ */
+export async function decryptLegacyLocalStorage(
+  passphrase: string
+): Promise<UnlockedKeyPairs> {
+  const raw = localStorage.getItem(_LEGACY_KEY);
+  if (!raw) throw new Error("NO_LEGACY");
 
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error("INVALID_STORAGE");
+  try { parsed = JSON.parse(raw); } catch { throw new Error("INVALID_STORAGE"); }
+
+  const env = parsed as EncryptedKeyEnvelope;
+  if (env?.v === 1 && env?.cipher === "AES-GCM") {
+    return decryptKeyBlob(raw, passphrase);
   }
 
-  if (isEncryptedEnvelope(parsed)) {
-    try {
-      const stored = await decryptStoredPayload(parsed, passphrase);
-      _sessionKeys = keyPairsFromStored(stored);
-      return _sessionKeys;
-    } catch {
-      throw new Error("WRONG_PASSPHRASE");
-    }
-  }
-
-  if (isLegacyPlainStored(parsed)) {
-    _sessionKeys = keyPairsFromStored(parsed);
-    return _sessionKeys;
+  // Legacy plaintext format (không mã hóa) — direct migration
+  const plain = parsed as StoredKeyPair;
+  if (typeof plain?.x25519?.privateKey === "string") {
+    return {
+      x25519: {
+        privateKey: fromBase64(plain.x25519.privateKey),
+        publicKey: fromBase64(plain.x25519.publicKey),
+      },
+      ed25519: {
+        privateKey: fromBase64(plain.ed25519.privateKey),
+        publicKey: fromBase64(plain.ed25519.publicKey),
+      },
+    };
   }
 
   throw new Error("INVALID_STORAGE");
-}
-
-/** Nâng cấp bản lưu plaintext cũ → mã hóa passphrase. */
-export async function migrateLegacyKeysToEncrypted(
-  passphrase: string
-): Promise<void> {
-  const raw = localStorage.getItem(KEY_STORAGE_KEY);
-  if (!raw) throw new Error("NO_KEYS");
-  const parsed: unknown = JSON.parse(raw);
-  if (!isLegacyPlainStored(parsed)) {
-    throw new Error("NOT_LEGACY");
-  }
-  const pairs = keyPairsFromStored(parsed);
-  await saveKeysToStorage(pairs.x25519, pairs.ed25519, passphrase);
-}
-
-/** Đổi passphrase (cần đã unlock). */
-export async function changeKeysPassphrase(newPassphrase: string): Promise<void> {
-  if (!_sessionKeys) throw new Error("LOCKED");
-  const err = validatePassphrase(newPassphrase);
-  if (err) throw new Error(err);
-  await saveKeysToStorage(
-    _sessionKeys.x25519,
-    _sessionKeys.ed25519,
-    newPassphrase
-  );
-}
-
-/** Trả keypair nếu đã unlock (hoặc legacy plaintext chưa nâng cấp). */
-export function loadKeysFromStorage(): UnlockedKeyPairs | null {
-  if (_sessionKeys) return _sessionKeys;
-
-  const raw = localStorage.getItem(KEY_STORAGE_KEY);
-  if (!raw) return null;
-
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (isLegacyPlainStored(parsed)) {
-      _sessionKeys = keyPairsFromStored(parsed);
-      return _sessionKeys;
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
-}
-
-export function clearKeysFromStorage(): void {
-  localStorage.removeItem(KEY_STORAGE_KEY);
-  _sessionKeys = null;
 }
 
 // ─── Checksum ─────────────────────────────────────────────────────────────────

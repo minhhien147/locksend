@@ -1,12 +1,10 @@
-import {
-  loadKeysFromStorage,
-  toBase64,
-} from "./crypto";
+import { toBase64 } from "./crypto";
+import { getKeys } from "./keyVault";
 import { getAccessToken, parseJwtPayload, storeMyPublicKey } from "./api";
 
 /** Đẩy public key hiện tại (đã mở khóa) lên server. */
 export async function syncPublicKeysToServer(): Promise<{ ok: true } | { ok: false; error: string }> {
-  const keys = loadKeysFromStorage();
+  const keys = getKeys();
   if (!keys) {
     return { ok: false, error: "Chưa mở khóa keypair" };
   }

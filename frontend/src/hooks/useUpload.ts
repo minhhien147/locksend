@@ -2,7 +2,6 @@ import { useState } from "react";
 import {
   encryptFile,
   encryptFileForRecipients,
-  loadKeysFromStorage,
   fromBase64,
   toBase64,
   prepareChunkedEncryption,
@@ -14,6 +13,7 @@ import {
   DEFAULT_CHUNK_SIZE,
   type ChunkedEncryptionMetadata,
 } from "../utils/crypto";
+import { getKeys } from "../utils/keyVault";
 import {
   uploadEncryptedFile,
   initMultipartUpload,
@@ -114,7 +114,7 @@ export function useUpload(): UseUploadReturn {
       }));
       return;
     }
-    const myKeys = loadKeysFromStorage();
+    const myKeys = getKeys();
     if (!myKeys) {
       setState((prev) => ({
         ...prev,

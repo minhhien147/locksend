@@ -23,6 +23,7 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import { authApi, changePasswordApi, setAccessToken } from "../utils/api";
+import { clearAll as clearKeyVault } from "../utils/keyVault";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -107,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await authApi.logout(); // revoke refresh token trên server + xóa cookie
     setAccessToken(null);
     setUser(null);
+    clearKeyVault(); // xóa private key khỏi RAM + sessionStorage
   }, []);
 
   const changePassword = useCallback(

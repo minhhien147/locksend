@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -19,7 +19,15 @@ import { LockSendMark } from "./components/LockSendLogo";
 import ChangePasswordDialog from "./components/ChangePasswordDialog";
 import { useKeySync } from "./hooks/useKeySync";
 import FloatingCryptoIcons from "./components/FloatingCryptoIcons";
+import KeyUnlockModal from "./components/KeyUnlockModal";
 import { badge } from "./styles/theme";
+import {
+  restoreFromSession,
+  hasSessionWrapper,
+  isUnlocked,
+  onLock,
+  resetLockTimer,
+} from "./utils/keyVault";
 
 export default function App() {
   return (
@@ -54,15 +62,58 @@ function AppShell() {
   const { user, logout, changePassword } = useAuth();
   useKeySync(!!user && user.role !== "recipient");
   const [pwdOpen, setPwdOpen] = useState(false);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
   const role = user?.role ?? "owner";
   const roleCfg = ROLE_CONFIG[role] ?? ROLE_CONFIG.owner;
   const isRecipient = role === "recipient";
   const isAdmin = role === "admin";
   const initials = (user?.display_name || user?.email || "U").slice(0, 2).toUpperCase();
 
+  // ── Key vault restore on mount (F5) ────────────────────────────────────────
+  useEffect(() => {
+    if (isUnlocked()) return; // already restored (shouldn't happen but safe)
+    if (hasSessionWrapper()) {
+      // F5: sessionStorage wrapper còn — restore silently
+      restoreFromSession().then((keys) => {
+        if (!keys) setShowUnlockModal(true); // wrapper corrupt → ask passphrase
+      });
+    } else {
+      // New session or tab: show modal to enter passphrase
+      setShowUnlockModal(true);
+    }
+  }, []);
+
+  // ── Register lock callback (inactivity timeout) ─────────────────────────────
+  useEffect(() => {
+    const unsub = onLock(() => setShowUnlockModal(true));
+    return unsub;
+  }, []);
+
+  // ── Global activity → reset inactivity timer ───────────────────────────────
+  const handleActivity = useCallback(() => { resetLockTimer(); }, []);
+  const activityAttached = useRef(false);
+  useEffect(() => {
+    if (activityAttached.current) return;
+    activityAttached.current = true;
+    const events = ["mousemove", "keydown", "mousedown", "touchstart", "scroll"];
+    events.forEach((e) => window.addEventListener(e, handleActivity, { passive: true }));
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, handleActivity));
+      activityAttached.current = false;
+    };
+  }, [handleActivity]);
+
   return (
     <div className={`${shell.page} relative`}>
       <FloatingCryptoIcons />
+
+      {/* Key unlock modal — shown on F5 (wrapper gone) or inactivity timeout */}
+      {showUnlockModal && (
+        <KeyUnlockModal
+          onUnlocked={() => setShowUnlockModal(false)}
+          onDismiss={() => setShowUnlockModal(false)}
+        />
+      )}
 
       <div className="relative z-20 flex flex-col flex-1 min-h-screen w-full">
       {/* ── Top navigation bar ── */}
