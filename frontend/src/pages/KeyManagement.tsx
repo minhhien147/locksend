@@ -308,10 +308,15 @@ export default function KeyManagement() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
+  const pageWrap =
+    pageState.phase === "unlocked"
+      ? "max-w-4xl mx-auto space-y-4"
+      : "max-w-md mx-auto space-y-3";
+
   return (
-    <div className="max-w-4xl mx-auto space-y-4">
+    <div className={pageWrap}>
       <header>
-        <h1 className={`text-xl font-bold ${text.primary} tracking-tight`}>Keys</h1>
+        <h1 className={`text-lg font-bold ${text.primary} tracking-tight`}>Keys</h1>
       </header>
 
       {/* Loading */}
@@ -351,10 +356,11 @@ export default function KeyManagement() {
           )}
 
           {/* Generate new keys form */}
-          <div className={`${surfaceCard} p-4 space-y-3`}>
+          <div className={`${surfaceCard} p-3 space-y-2.5`}>
             {!dangerStep ? (
               <>
                 <PassphraseFields
+                  compact
                   passphrase={newPassphrase}
                   confirm={confirmPassphrase}
                   onPassphraseChange={setNewPassphrase}
@@ -377,8 +383,9 @@ export default function KeyManagement() {
 
       {/* Locked — enter passphrase */}
       {pageState.phase === "locked" && (
-        <div className={`${surfaceCard} p-4 space-y-3`}>
+        <div className={`${surfaceCard} p-3 space-y-2.5`}>
           <PassphraseFields
+            compact
             passphrase={unlockPassphrase}
             confirm=""
             onPassphraseChange={setUnlockPassphrase}
@@ -614,6 +621,7 @@ function PassphraseFields({
   showConfirm = true,
   passphraseLabel = "Passphrase",
   confirmLabel = "Xác nhận",
+  compact,
 }: {
   passphrase: string;
   confirm: string;
@@ -623,10 +631,12 @@ function PassphraseFields({
   showConfirm?: boolean;
   passphraseLabel?: string;
   confirmLabel?: string;
+  compact?: boolean;
 }) {
   return (
-    <div className="space-y-2">
+    <div className={compact ? "space-y-1.5" : "space-y-2"}>
       <PasswordInput
+        compact={compact}
         labelText={passphraseLabel}
         value={passphrase}
         onChange={onPassphraseChange}
@@ -635,6 +645,7 @@ function PassphraseFields({
       />
       {showConfirm && (
         <PasswordInput
+          compact={compact}
           labelText={confirmLabel}
           value={confirm}
           onChange={onConfirmChange}
