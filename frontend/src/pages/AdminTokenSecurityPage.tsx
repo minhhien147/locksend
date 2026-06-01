@@ -309,16 +309,19 @@ export default function AdminTokenSecurityPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => void loadOverview()} disabled={loading}
+          <button
+            type="button"
+            onClick={() => void loadOverview()}
+            disabled={loading}
             className={`${admin.btnGhost} disabled:opacity-40`}
+          >
             Làm mới
           </button>
           <button type="button" onClick={triggerAutoRevoke}
             className="px-3 py-2 rounded-xl border border-rose-500/30 text-sm text-rose-400 hover:bg-rose-500/10 transition">
             Auto-revoke
           </button>
-          <button type="button" onClick={cleanup}
-            className={admin.btnGhost}
+          <button type="button" onClick={cleanup} className={admin.btnGhost}>
             Cleanup
           </button>
         </div>
