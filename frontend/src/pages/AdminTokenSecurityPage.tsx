@@ -2,19 +2,26 @@ import { useCallback, useEffect, useState } from "react";
 import api from "../utils/api";
 import PageLoader, { LoadingSpinner } from "../components/LoadingSpinner";
 
-import { surfaceCard } from "../styles/theme";
+import { admin, surfaceCard } from "../styles/theme";
 
 const RISK_BADGE: Record<string, string> = {
-  low:      "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/25",
-  medium:   "bg-amber-500/15  text-amber-300  ring-1 ring-amber-500/25",
-  high:     "bg-orange-500/15 text-orange-300 ring-1 ring-orange-500/25",
-  critical: "bg-rose-500/15   text-rose-300   ring-1 ring-rose-500/25",
+  low:
+    "bg-slate-900 text-emerald-200 ring-1 ring-slate-600 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/25",
+  medium:
+    "bg-slate-900 text-amber-200 ring-1 ring-slate-600 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/25",
+  high:
+    "bg-slate-900 text-orange-200 ring-1 ring-slate-600 dark:bg-orange-500/15 dark:text-orange-300 dark:ring-orange-500/25",
+  critical:
+    "bg-slate-900 text-rose-200 ring-1 ring-slate-600 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/25",
 };
 
 const REC_BADGE: Record<string, string> = {
-  ALLOW:   "bg-emerald-500/10 text-emerald-400",
-  MONITOR: "bg-amber-500/10  text-amber-400",
-  REVOKE:  "bg-rose-500/10   text-rose-400",
+  ALLOW:
+    "bg-slate-900 text-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400",
+  MONITOR:
+    "bg-slate-900 text-amber-200 dark:bg-amber-500/10 dark:text-amber-400",
+  REVOKE:
+    "bg-slate-900 text-rose-200 dark:bg-rose-500/10 dark:text-rose-400",
 };
 
 function RiskBadge({ level }: { level: string }) {
@@ -296,14 +303,14 @@ export default function AdminTokenSecurityPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold text-white tracking-tight">Token Security</h2>
-          <p className="text-sm text-white/40 mt-0.5">
+          <h2 className={admin.title}>Token Security</h2>
+          <p className={admin.desc}>
             LockSend AI · Rule engine · Auto-revoke · Không truy cập plaintext
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => void loadOverview()} disabled={loading}
-            className="px-3 py-2 rounded-xl border border-white/10 text-sm text-white/60 hover:bg-white/[0.05] transition disabled:opacity-40">
+            className={`${admin.btnGhost} disabled:opacity-40`}
             Làm mới
           </button>
           <button type="button" onClick={triggerAutoRevoke}
@@ -311,7 +318,7 @@ export default function AdminTokenSecurityPage() {
             Auto-revoke
           </button>
           <button type="button" onClick={cleanup}
-            className="px-3 py-2 rounded-xl border border-white/10 text-sm text-white/50 hover:bg-white/[0.04] transition">
+            className={admin.btnGhost}
             Cleanup
           </button>
         </div>
@@ -340,7 +347,7 @@ export default function AdminTokenSecurityPage() {
             </span>
           )}
           {aiHealth && (
-            <span className="text-xs text-white/35">
+            <span className="text-xs text-slate-600 dark:text-white/35">
               {aiReady
                 ? `v${aiHealth.version ?? "?"} · ROC-AUC ${((aiHealth.metrics?.roc_auc ?? 0) * 100).toFixed(1)}%`
                 : "model chưa sẵn sàng"}
@@ -348,11 +355,11 @@ export default function AdminTokenSecurityPage() {
           )}
         </div>
 
-        <div className="h-4 w-px bg-white/10" />
+        <div className={`h-4 w-px ${admin.dividerLight}`} />
 
         {/* Rule engine */}
-        <span className="text-sm font-medium text-indigo-300">● Rule engine</span>
-        <span className="text-xs text-white/30">
+        <span className="text-sm font-medium text-indigo-700 dark:text-indigo-300">● Rule engine</span>
+        <span className="text-xs text-slate-500 dark:text-white/30">
           Ngưỡng auto-revoke: {overview?.config.auto_revoke_score_threshold ?? 80}
         </span>
 
@@ -375,7 +382,7 @@ export default function AdminTokenSecurityPage() {
           ].map(({ label, value, color }) => (
             <div key={label} className={`${surfaceCard} p-4 text-center`}>
               <p className={`text-2xl font-bold ${color}`}>{value}</p>
-              <p className="text-[11px] text-white/35 uppercase tracking-wide mt-1">{label}</p>
+              <p className="text-[11px] text-slate-600 dark:text-white/35 uppercase tracking-wide mt-1">{label}</p>
             </div>
           ))}
         </div>
@@ -386,9 +393,7 @@ export default function AdminTokenSecurityPage() {
         {(["overview", "tokens", "ai-report"] as Tab[]).map((t) => (
           <button key={t} type="button" onClick={() => setActiveTab(t)}
             className={`px-4 py-2 rounded-xl text-[13px] font-medium transition ${
-              activeTab === t
-                ? "bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-400/30"
-                : "text-white/40 hover:text-white/70 hover:bg-white/[0.05]"
+              activeTab === t ? admin.tabActive : admin.tabInactive
             }`}>
             {t === "overview" ? "Overview" : t === "tokens" ? "Token List" : "AI Report"}
           </button>
@@ -401,40 +406,40 @@ export default function AdminTokenSecurityPage() {
           <div className="grid sm:grid-cols-2 gap-4">
             {/* JWT */}
             <div className={`${surfaceCard} p-5`}>
-              <h3 className="text-sm font-semibold text-white/70 mb-3">JWT / Refresh Tokens</h3>
+              <h3 className={`${admin.sectionTitle} mb-3`}>JWT / Refresh Tokens</h3>
               <div className="space-y-1.5 text-sm">
                 {[
                   ["Active",  overview.jwt.active,  "text-indigo-400"],
                   ["Revoked", overview.jwt.revoked,  "text-rose-400"],
-                  ["Expired", overview.jwt.expired,  "text-white/35"],
-                  ["Total",   overview.jwt.total,    "text-white/60"],
+                  ["Expired", overview.jwt.expired,  "text-slate-600 dark:text-white/35"],
+                  ["Total",   overview.jwt.total,    "text-slate-700 dark:text-white/60"],
                 ].map(([label, val, cls]) => (
                   <div key={String(label)} className="flex justify-between">
-                    <span className="text-white/45">{label}</span>
+                    <span className="text-slate-600 dark:text-white/45">{label}</span>
                     <span className={String(cls)}>{val}</span>
                   </div>
                 ))}
-                <div className="pt-2 border-t border-white/[0.05] text-xs text-white/30">
+                <div className={`pt-2 border-t ${admin.divider} text-xs text-slate-500 dark:text-white/30`}>
                   Access token TTL: {overview.config.access_token_ttl_minutes}m · Refresh TTL: {overview.config.refresh_token_ttl_days}d
                 </div>
               </div>
             </div>
             {/* SAS */}
             <div className={`${surfaceCard} p-5`}>
-              <h3 className="text-sm font-semibold text-white/70 mb-3">SAS URL Tokens</h3>
+              <h3 className={`${admin.sectionTitle} mb-3`}>SAS URL Tokens</h3>
               <div className="space-y-1.5 text-sm">
                 {[
                   ["Active",  overview.sas.active,  "text-sky-400"],
                   ["Revoked", overview.sas.revoked,  "text-rose-400"],
-                  ["Expired", overview.sas.expired,  "text-white/35"],
-                  ["Total",   overview.sas.total,    "text-white/60"],
+                  ["Expired", overview.sas.expired,  "text-slate-600 dark:text-white/35"],
+                  ["Total",   overview.sas.total,    "text-slate-700 dark:text-white/60"],
                 ].map(([label, val, cls]) => (
                   <div key={String(label)} className="flex justify-between">
-                    <span className="text-white/45">{label}</span>
+                    <span className="text-slate-600 dark:text-white/45">{label}</span>
                     <span className={String(cls)}>{val}</span>
                   </div>
                 ))}
-                <div className="pt-2 border-t border-white/[0.05] text-xs text-white/30">
+                <div className={`pt-2 border-t ${admin.divider} text-xs text-slate-500 dark:text-white/30`}>
                   Auto-revoke candidates: {overview.risk_summary.auto_revoke_candidates}
                 </div>
               </div>
@@ -454,7 +459,7 @@ export default function AdminTokenSecurityPage() {
             <div className={`${surfaceCard} p-5`}>
               <div className="flex items-center gap-2 mb-3">
                 <h3 className="text-sm font-semibold text-emerald-300">LockSend AI — Random Forest</h3>
-                <span className="text-xs text-white/30">{aiHealth.version}</span>
+                <span className="text-xs text-slate-500 dark:text-white/30">{aiHealth.version}</span>
               </div>
               <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
                 {[
@@ -466,11 +471,11 @@ export default function AdminTokenSecurityPage() {
                 ].map(({ label, val }) => (
                   <div key={label} className="text-center">
                     <p className="text-sm font-bold text-emerald-300">{val != null ? (val * 100).toFixed(1) + "%" : "—"}</p>
-                    <p className="text-[10px] text-white/30 mt-0.5">{label}</p>
+                    <p className="text-[10px] text-slate-500 dark:text-white/30 mt-0.5">{label}</p>
                   </div>
                 ))}
               </div>
-              <p className="text-[10px] text-white/20 mt-3">
+              <p className="text-[10px] text-slate-400 dark:text-white/20 mt-3">
                 Train: {aiHealth.metrics.train_size?.toLocaleString()} samples · Dataset: CIC-IDS2017 (brute-force, DoS, Bot, DDoS)
               </p>
             </div>
@@ -479,13 +484,13 @@ export default function AdminTokenSecurityPage() {
           {/* Top risk */}
           {topRisk.length > 0 && (
             <div className={`${surfaceCard} p-5`}>
-              <h3 className="text-sm font-semibold text-white/70 mb-3">Top rủi ro (rule engine)</h3>
+              <h3 className={`${admin.sectionTitle} mb-3`}>Top rủi ro (rule engine)</h3>
               <ul className="space-y-2">
                 {topRisk.slice(0, 5).map((t) => (
-                  <li key={t.token_id} className="flex items-center gap-2 text-xs text-white/55">
+                  <li key={t.token_id} className="flex items-center gap-2 text-xs text-slate-700 dark:text-white/55">
                     <RiskBadge level={t.risk_level} />
                     <span className="truncate flex-1">{t.email ?? t.blob_name ?? t.token_id}</span>
-                    <span className="text-white/35">{t.risk_score}</span>
+                    <span className="text-slate-600 dark:text-white/35">{t.risk_score}</span>
                     <RecBadge rec={t.recommendation} />
                   </li>
                 ))}
@@ -495,8 +500,8 @@ export default function AdminTokenSecurityPage() {
 
           {/* AI Analyze button */}
           <div className={`${surfaceCard} p-5`}>
-            <h3 className="text-sm font-semibold text-white/70 mb-2">Phân tích bằng LockSend AI</h3>
-            <p className="text-xs text-white/35 mb-4">
+            <h3 className={`${admin.sectionTitle} mb-2`}>Phân tích bằng LockSend AI</h3>
+            <p className="text-xs text-slate-600 dark:text-white/35 mb-4">
               Random Forest (CIC-IDS2017) · SHAP explanation · Top 20 token theo risk score
               {!aiReady && <span className="text-amber-300/60 ml-2">— model chưa sẵn sàng, cần train trước</span>}
             </p>
@@ -520,7 +525,7 @@ export default function AdminTokenSecurityPage() {
             {(["all", "jwt", "sas"] as const).map((t) => (
               <button key={t} type="button" onClick={() => { setTokenType(t); void loadTokens(t); }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                  tokenType === t ? "bg-indigo-500/20 text-indigo-300" : "text-white/40 hover:text-white/70"
+                  tokenType === t ? admin.tabActive : admin.tabInactive
                 }`}>
                 {t.toUpperCase()}
               </button>
@@ -530,14 +535,14 @@ export default function AdminTokenSecurityPage() {
 
           <div className={`${surfaceCard} overflow-hidden`}>
             {!tokens.length ? (
-              <p className="px-5 py-10 text-sm text-white/30 text-center">
+              <p className="px-5 py-10 text-sm text-slate-500 dark:text-white/30 text-center">
                 {tokensLoading ? "Đang tải…" : "Không có token nào"}
               </p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left text-[11px] text-white/30 border-b border-white/[0.05]">
+                    <tr className={admin.tableHeadInner}>
                       <th className="px-4 py-3 font-medium">Token / User</th>
                       <th className="px-3 py-3 font-medium">Type</th>
                       <th className="px-3 py-3 font-medium">Score</th>
@@ -549,10 +554,10 @@ export default function AdminTokenSecurityPage() {
                   </thead>
                   <tbody>
                     {tokens.map((t) => (
-                      <tr key={t.token_id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                      <tr key={t.token_id} className={admin.rowInner}>
                         <td className="px-4 py-3 max-w-[200px]">
-                          <p className="text-white/80 text-xs truncate">{t.email ?? t.blob_name ?? t.token_id.slice(0, 12) + "…"}</p>
-                          <p className="text-[10px] text-white/30">{t.role ?? t.token_type}</p>
+                          <p className="text-slate-900 dark:text-white/80 text-xs truncate">{t.email ?? t.blob_name ?? t.token_id.slice(0, 12) + "…"}</p>
+                          <p className="text-[10px] text-slate-500 dark:text-white/30">{t.role ?? t.token_type}</p>
                         </td>
                         <td className="px-3 py-3">
                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
@@ -561,12 +566,12 @@ export default function AdminTokenSecurityPage() {
                         </td>
                         <td className="px-3 py-3">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-white/70 text-xs w-5">{t.risk_score}</span>
+                            <span className="text-slate-800 dark:text-white/70 text-xs w-5">{t.risk_score}</span>
                             <RiskBadge level={t.risk_level} />
                           </div>
                         </td>
-                        <td className="px-3 py-3 text-white/50 text-xs">{t.ip_count}</td>
-                        <td className="px-3 py-3 text-white/50 text-xs">{t.token_age_hours}</td>
+                        <td className="px-3 py-3 text-slate-600 dark:text-white/50 text-xs">{t.ip_count}</td>
+                        <td className="px-3 py-3 text-slate-600 dark:text-white/50 text-xs">{t.token_age_hours}</td>
                         <td className="px-3 py-3"><RecBadge rec={t.recommendation} /></td>
                         <td className="px-4 py-3 text-right">
                           {t.token_type === "jwt" && t.user_id && (
@@ -583,7 +588,11 @@ export default function AdminTokenSecurityPage() {
                               {busyId === t.token_id ? "…" : "Revoke"}
                             </button>
                           )}
-                          {t.is_revoked && <span className="text-[10px] text-white/25">Revoked</span>}
+                          {t.is_revoked && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 text-white/70 dark:bg-transparent dark:text-white/25">
+                              Revoked
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -602,7 +611,7 @@ export default function AdminTokenSecurityPage() {
           {/* Empty state */}
           {!aiResults.length && !aiError && (
             <div className={`${surfaceCard} p-8 text-center`}>
-              <p className="text-white/35 text-sm mb-4">
+              <p className="text-slate-600 dark:text-white/35 text-sm mb-4">
                 Chưa có báo cáo AI. Nhấn "Chạy LockSend AI" ở tab Overview.
               </p>
               <button type="button" onClick={() => void runAiAnalyze()} disabled={analyzing || !aiReady}
@@ -620,7 +629,7 @@ export default function AdminTokenSecurityPage() {
                 <span className="font-medium">LockSend AI lỗi:</span> {aiError}
               </p>
               {aiHealth && !aiHealth.ready && (
-                <p className="text-xs text-white/30 mt-2 font-mono">
+                <p className="text-xs text-slate-500 dark:text-white/30 mt-2 font-mono">
                   {aiHealth.hint ?? `cd ${aiHealth.ai_dir} && python train.py`}
                 </p>
               )}
@@ -634,7 +643,7 @@ export default function AdminTokenSecurityPage() {
               <div className={`${surfaceCard} p-5`}>
                 <div className="flex items-center gap-3 mb-3">
                   <h3 className="text-sm font-semibold text-emerald-300">Kết quả LockSend AI</h3>
-                  <span className="text-xs text-white/30">{aiResults.length} token được phân tích</span>
+                  <span className="text-xs text-slate-500 dark:text-white/30">{aiResults.length} token được phân tích</span>
                 </div>
                 <div className="grid grid-cols-3 gap-4 text-center">
                   {[
@@ -644,7 +653,7 @@ export default function AdminTokenSecurityPage() {
                   ].map(({ label, value, color }) => (
                     <div key={label}>
                       <p className={`text-xl font-bold ${color}`}>{value}</p>
-                      <p className="text-[11px] text-white/35 mt-0.5">{label}</p>
+                      <p className="text-[11px] text-slate-600 dark:text-white/35 mt-0.5">{label}</p>
                     </div>
                   ))}
                 </div>
@@ -652,8 +661,8 @@ export default function AdminTokenSecurityPage() {
 
               {/* Per-token results */}
               <div className={`${surfaceCard} overflow-hidden`}>
-                <div className="px-5 py-3 border-b border-white/[0.05]">
-                  <h4 className="text-xs font-semibold text-white/50 uppercase tracking-wide">Chi tiết từng token</h4>
+                <div className={`px-5 py-3 border-b ${admin.divider}`}>
+                  <h4 className="text-xs font-semibold text-slate-600 dark:text-white/50 uppercase tracking-wide">Chi tiết từng token</h4>
                 </div>
                 <div className="divide-y divide-white/[0.04]">
                   {aiResults.map((r, i) => {
@@ -666,14 +675,14 @@ export default function AdminTokenSecurityPage() {
                     return (
                       <div key={r.token_id ?? i} className="px-5 py-4 space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs text-white/60 font-mono">
+                          <span className="text-xs text-slate-700 dark:text-white/60 font-mono">
                             {rule?.email ?? r.token_id?.slice(0, 16) ?? "—"}…
                           </span>
                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
                             r.token_type === "jwt" ? "bg-indigo-500/15 text-indigo-300" : "bg-sky-500/15 text-sky-300"
                           }`}>{(r.token_type ?? "jwt").toUpperCase()}</span>
                           <RiskBadge level={r.risk_level} />
-                          <span className="text-xs text-white/50">
+                          <span className="text-xs text-slate-600 dark:text-white/50">
                             AI: {r.risk_score_pct}% ({r.ai_level_raw})
                           </span>
                           <RecBadge rec={r.decision} />
@@ -684,7 +693,7 @@ export default function AdminTokenSecurityPage() {
                           )}
                         </div>
                         {/* Explanation */}
-                        <p className="text-[11px] text-white/40 leading-relaxed">
+                        <p className="text-[11px] text-slate-600 dark:text-white/40 leading-relaxed">
                           {r.explanation?.summary}
                         </p>
                         {/* SHAP top features */}

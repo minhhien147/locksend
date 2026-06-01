@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { surfaceCardAdmin as surfaceCard, text, nav } from "../styles/theme";
+import { admin, surfaceCardAdmin as surfaceCard, text } from "../styles/theme";
 
 export default function AdminLayout() {
   return (
@@ -14,8 +14,8 @@ export default function AdminLayout() {
           className={({ isActive }) =>
             `px-4 py-2 rounded-xl text-[13px] font-medium transition ${
               isActive
-                ? "bg-rose-500/20 text-rose-300 ring-1 ring-rose-400/30 shadow-sm"
-                : `${nav.inactive} hover:bg-slate-300/35 dark:hover:bg-white/[0.05]`
+                ? admin.navActiveUsers
+                : admin.navInactive
             }`
           }
         >
@@ -26,8 +26,8 @@ export default function AdminLayout() {
           className={({ isActive }) =>
             `px-4 py-2 rounded-xl text-[13px] font-medium transition ${
               isActive
-                ? "bg-violet-500/20 text-violet-300 ring-1 ring-violet-400/30 shadow-sm"
-                : `${nav.inactive} hover:bg-slate-300/35 dark:hover:bg-white/[0.05]`
+                ? admin.navActiveToken
+                : admin.navInactive
             }`
           }
         >
@@ -38,8 +38,8 @@ export default function AdminLayout() {
           className={({ isActive }) =>
             `px-4 py-2 rounded-xl text-[13px] font-medium transition ${
               isActive
-                ? "bg-amber-500/20 text-amber-300 ring-1 ring-amber-400/30 shadow-sm"
-                : `${nav.inactive} hover:bg-slate-300/35 dark:hover:bg-white/[0.05]`
+                ? admin.navActiveStress
+                : admin.navInactive
             }`
           }
         >

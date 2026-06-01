@@ -27,7 +27,7 @@ const DEFAULT_SIZES_MB = [10, 100, 256, 512];
 /** Kích thước mở rộng — cảnh báo người dùng trước khi chạy */
 const EXTENDED_SIZES_MB = [1024, 2048, 4096];
 
-import { surfaceCard, btn } from "../styles/theme";
+import { admin, pageDesc, pageTitle, surfaceCard, btn } from "../styles/theme";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -278,12 +278,30 @@ async function runChunkedTest(
 
 function StatusBadge({ status }: { status: TestStatus }) {
   const cfg: Record<TestStatus, { label: string; cls: string }> = {
-    pending: { label: "Chờ", cls: "bg-white/[0.06] text-white/40" },
-    running: { label: "Đang chạy", cls: "bg-indigo-500/25 text-indigo-300 animate-pulse" },
-    pass: { label: "PASS", cls: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" },
-    oom: { label: "OOM", cls: "bg-rose-500/20 text-rose-300 border border-rose-500/35" },
-    error: { label: "LỖI", cls: "bg-amber-500/15 text-amber-300 border border-amber-500/25" },
-    skipped: { label: "Bỏ qua", cls: "bg-white/[0.05] text-white/30" },
+    pending: {
+      label: "Chờ",
+      cls: "bg-slate-900 text-slate-300 dark:bg-white/[0.06] dark:text-white/40",
+    },
+    running: {
+      label: "Đang chạy",
+      cls: "bg-slate-900 text-indigo-200 animate-pulse dark:bg-indigo-500/25 dark:text-indigo-300",
+    },
+    pass: {
+      label: "PASS",
+      cls: "bg-slate-900 text-emerald-200 border border-slate-600 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30",
+    },
+    oom: {
+      label: "OOM",
+      cls: "bg-slate-900 text-rose-200 border border-slate-600 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/35",
+    },
+    error: {
+      label: "LỖI",
+      cls: "bg-slate-900 text-amber-200 border border-slate-600 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/25",
+    },
+    skipped: {
+      label: "Bỏ qua",
+      cls: "bg-slate-800 text-slate-400 dark:bg-white/[0.05] dark:text-white/30",
+    },
   };
   const { label, cls } = cfg[status];
   return (
@@ -410,23 +428,23 @@ export default function StressTestPage() {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <header>
-        <h1 className="text-2xl font-bold text-white tracking-tight mb-1">
+        <h1 className={`${pageTitle} mb-1`}>
           Stress Test Hiệu Năng — File Lớn
         </h1>
-        <p className="text-sm text-white/45 leading-relaxed">
+        <p className={`${pageDesc} leading-relaxed`}>
           Đánh giá giới hạn RAM của Web Crypto API (AES-256-GCM) và so sánh single-shot vs chunked encryption.
         </p>
       </header>
 
       {!hasMemoryApi && (
-        <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-xs text-amber-200/95">
-          <strong className="text-amber-300">Lưu ý:</strong>{" "}
-          <code className="text-amber-100/90 bg-black/30 px-1 rounded">performance.memory</code> chỉ đầy đủ trên Chrome (có thể cần flag). Cột Heap Delta hiển thị "—" trên Firefox/Safari.
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200/95">
+          <strong className="text-amber-800 dark:text-amber-300">Lưu ý:</strong>{" "}
+          <code className="text-amber-900 bg-amber-100 px-1 rounded dark:text-amber-100/90 dark:bg-black/30">performance.memory</code> chỉ đầy đủ trên Chrome (có thể cần flag). Cột Heap Delta hiển thị "—" trên Firefox/Safari.
         </div>
       )}
 
       <div className={`${surfaceCard} p-5 sm:p-6 space-y-4`}>
-        <p className="text-sm font-medium text-white/75">Chọn kích thước file để test</p>
+        <p className={`text-sm font-medium ${admin.sectionTitle}`}>Chọn kích thước file để test</p>
 
         <div className="flex flex-wrap gap-2">
           {DEFAULT_SIZES_MB.map((mb) => (
@@ -438,7 +456,7 @@ export default function StressTestPage() {
               className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${
                 includedSizesMB.includes(mb)
                   ? "bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-900/30"
-                  : "border-white/12 text-white/55 hover:bg-white/[0.06] hover:text-white/85"
+                  : "border-slate-300 text-slate-700 hover:bg-slate-100 hover:text-slate-900 dark:border-white/12 dark:text-white/55 dark:hover:bg-white/[0.06] dark:hover:text-white/85"
               } disabled:opacity-50`}
             >
               {mb} MB
@@ -501,17 +519,17 @@ export default function StressTestPage() {
         </div>
 
         {isRunning && currentTest && (
-          <div className="rounded-xl border border-indigo-500/25 bg-indigo-950/40 px-4 py-3 text-sm text-indigo-200/95">
-            <span className="font-semibold text-indigo-300">Đang test:</span> {currentTest}
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900 dark:border-indigo-500/25 dark:bg-indigo-950/40 dark:text-indigo-200/95">
+            <span className="font-semibold text-indigo-700 dark:text-indigo-300">Đang test:</span> {currentTest}
             {chunkProgress && (
               <div className="mt-2">
-                <div className="flex justify-between text-xs mb-1 text-white/50">
+                <div className="flex justify-between text-xs mb-1 text-slate-600 dark:text-white/50">
                   <span>
                     Chunk {chunkProgress.done}/{chunkProgress.total}
                   </span>
                   <span>{Math.round((chunkProgress.done / chunkProgress.total) * 100)}%</span>
                 </div>
-                <div className="w-full bg-black/40 rounded-full h-1.5">
+                <div className="w-full bg-slate-200 dark:bg-black/40 rounded-full h-1.5">
                   <div
                     className="bg-indigo-500 h-1.5 rounded-full transition-all"
                     style={{ width: `${(chunkProgress.done / chunkProgress.total) * 100}%` }}
@@ -525,63 +543,63 @@ export default function StressTestPage() {
 
       {rows.length > 0 && (
         <div className={`${surfaceCard} overflow-hidden`}>
-          <div className="px-4 sm:px-5 py-3 border-b border-white/[0.08] bg-black/20">
-            <p className="text-sm font-semibold text-white/80">Kết quả đo thực tế</p>
+          <div className={`px-4 sm:px-5 py-3 border-b ${admin.divider} bg-slate-900 dark:bg-black/20`}>
+            <p className="text-sm font-semibold text-white/90">Kết quả đo thực tế</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[720px]">
               <thead>
-                <tr className="border-b border-white/[0.08] text-[10px] uppercase tracking-wider text-white/40">
+                <tr className={`border-b ${admin.divider} text-[10px] uppercase tracking-wider bg-slate-900 text-white/80 dark:bg-transparent dark:text-white/40`}>
                   <th className="px-4 py-3 text-left font-semibold">Kích thước</th>
-                  <th className="px-3 py-3 text-center border-l border-white/[0.08] font-semibold" colSpan={4}>
-                    <span className="text-rose-400/95">Single-shot</span>
-                    <span className="text-white/25 font-normal normal-case ml-1">(một lần)</span>
+                  <th className={`px-3 py-3 text-center border-l ${admin.divider} font-semibold`} colSpan={4}>
+                    <span className="text-rose-300 dark:text-rose-400/95">Single-shot</span>
+                    <span className="text-white/60 font-normal normal-case ml-1 dark:text-white/25">(một lần)</span>
                   </th>
-                  <th className="px-3 py-3 text-center border-l border-white/[0.08] font-semibold" colSpan={4}>
-                    <span className="text-emerald-400/95">Chunked {CHUNK_SIZE_MB}MB</span>
-                    <span className="text-white/25 font-normal normal-case ml-1">(theo chunk)</span>
+                  <th className={`px-3 py-3 text-center border-l ${admin.divider} font-semibold`} colSpan={4}>
+                    <span className="text-emerald-300 dark:text-emerald-400/95">Chunked {CHUNK_SIZE_MB}MB</span>
+                    <span className="text-white/60 font-normal normal-case ml-1 dark:text-white/25">(theo chunk)</span>
                   </th>
                 </tr>
-                <tr className="text-[10px] text-white/35 border-b border-white/[0.06] bg-black/15">
+                <tr className={`text-[10px] border-b ${admin.divider} bg-slate-800 text-white/70 dark:text-white/35 dark:bg-black/15`}>
                   <th className="px-4 py-2 text-left" />
                   <th className="px-2 py-2 text-center font-medium">TT</th>
                   <th className="px-2 py-2 text-center font-medium">Thời gian</th>
                   <th className="px-2 py-2 text-center font-medium">MB/s</th>
-                  <th className="px-2 py-2 text-center font-medium border-r border-white/[0.08]">Heap</th>
+                  <th className={`px-2 py-2 text-center font-medium border-r ${admin.divider}`}>Heap</th>
                   <th className="px-2 py-2 text-center font-medium">TT</th>
                   <th className="px-2 py-2 text-center font-medium">Thời gian</th>
                   <th className="px-2 py-2 text-center font-medium">MB/s</th>
                   <th className="px-2 py-2 text-center font-medium">Peak</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/[0.06]">
+              <tbody className={admin.tableDivide}>
                 {rows.map((row) => (
-                  <tr key={row.sizeMB} className="hover:bg-white/[0.02] transition">
-                    <td className="px-4 py-3 font-semibold text-white/90 tabular-nums">
+                  <tr key={row.sizeMB} className={admin.rowHover}>
+                    <td className="px-4 py-3 font-semibold text-slate-900 tabular-nums dark:text-white/90">
                       {row.sizeMB >= 1024 ? `${row.sizeMB / 1024} GB` : `${row.sizeMB} MB`}
                     </td>
-                    <td className="px-2 py-3 text-center border-l border-white/[0.06]">
+                    <td className={`px-2 py-3 text-center border-l ${admin.divider}`}>
                       <StatusBadge status={row.singleShot.status} />
                     </td>
-                    <td className="px-2 py-3 text-center font-mono text-xs text-white/65">
+                    <td className="px-2 py-3 text-center font-mono text-xs text-slate-700 dark:text-white/65">
                       {formatMs(row.singleShot.encryptMs)}
                     </td>
-                    <td className="px-2 py-3 text-center text-xs text-white/60 tabular-nums">
+                    <td className="px-2 py-3 text-center text-xs text-slate-600 tabular-nums dark:text-white/60">
                       {formatMBps(row.singleShot.throughputMBps)}
                     </td>
-                    <td className="px-2 py-3 text-center text-xs text-white/45 border-r border-white/[0.06] tabular-nums">
+                    <td className={`px-2 py-3 text-center text-xs text-slate-500 border-r ${admin.divider} tabular-nums dark:text-white/45`}>
                       {row.singleShot.status === "pass" ? formatHeap(row.singleShot.heapDeltaMB) : "—"}
                     </td>
                     <td className="px-2 py-3 text-center">
                       <StatusBadge status={row.chunked.status} />
                     </td>
-                    <td className="px-2 py-3 text-center font-mono text-xs text-white/65">
+                    <td className="px-2 py-3 text-center font-mono text-xs text-slate-700 dark:text-white/65">
                       {formatMs(row.chunked.totalEncryptMs)}
                     </td>
-                    <td className="px-2 py-3 text-center text-xs text-white/60 tabular-nums">
+                    <td className="px-2 py-3 text-center text-xs text-slate-600 tabular-nums dark:text-white/60">
                       {formatMBps(row.chunked.throughputMBps)}
                     </td>
-                    <td className="px-2 py-3 text-center text-xs text-white/45 tabular-nums">
+                    <td className="px-2 py-3 text-center text-xs text-slate-500 tabular-nums dark:text-white/45">
                       {row.chunked.status === "pass" ? formatHeap(row.chunked.peakChunkHeapMB) : "—"}
                     </td>
                   </tr>
@@ -595,8 +613,8 @@ export default function StressTestPage() {
               (r.singleShot.status === "oom" || r.singleShot.status === "error") ||
               (r.chunked.status === "oom" || r.chunked.status === "error")
           ) && (
-            <div className="px-4 sm:px-5 py-4 border-t border-white/[0.08] space-y-2 bg-black/20">
-              <p className="text-[11px] font-semibold text-white/50 uppercase tracking-wide">Chi tiết lỗi</p>
+            <div className={`px-4 sm:px-5 py-4 border-t ${admin.divider} space-y-2 bg-slate-50 dark:bg-black/20`}>
+              <p className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide dark:text-white/50">Chi tiết lỗi</p>
               {rows.map((row) => (
                 <div key={`errs-${row.sizeMB}`} className="space-y-1.5">
                   {row.singleShot.errorMsg && (
@@ -645,13 +663,13 @@ function SummaryPanel({
 
   return (
     <div className={`${surfaceCard} p-5 sm:p-6 space-y-5`}>
-      <h2 className="text-base font-bold text-white">Kết luận và khuyến nghị</h2>
+      <h2 className={admin.sectionTitle}>Kết luận và khuyến nghị</h2>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="rounded-xl border border-rose-500/25 bg-rose-950/25 p-4">
           <p className="text-[10px] text-rose-400/90 font-bold uppercase tracking-wider mb-1">Single-shot</p>
           <p className="text-2xl font-bold text-rose-200 tabular-nums">{fmtSize(summary.maxSafeShot)}</p>
-          <p className="text-xs text-white/45 mt-2 leading-relaxed">
+          <p className="text-xs text-slate-600 mt-2 leading-relaxed dark:text-white/45">
             Ngưỡng an toàn tối đa. Vượt quá: trình duyệt dễ OOM vì plaintext + ciphertext trong RAM.
           </p>
         </div>
@@ -661,7 +679,7 @@ function SummaryPanel({
             Chunked {CHUNK_SIZE_MB}MB
           </p>
           <p className="text-2xl font-bold text-emerald-200 tabular-nums">{fmtSize(summary.maxSafeChunked)}</p>
-          <p className="text-xs text-white/45 mt-2 leading-relaxed">
+          <p className="text-xs text-slate-600 mt-2 leading-relaxed dark:text-white/45">
             Peak RAM ≈ 2 × {CHUNK_SIZE_MB}MB. Phù hợp file rất lớn (GB).
           </p>
         </div>
@@ -671,35 +689,35 @@ function SummaryPanel({
         <div className="rounded-xl border border-indigo-500/25 bg-indigo-950/30 p-4 text-center">
           <p className="text-[10px] text-indigo-300/90 font-bold uppercase tracking-wider mb-1">Cải thiện dung lượng tối đa</p>
           <p className="text-3xl font-bold text-indigo-200 tabular-nums">{improvementFactor}×</p>
-          <p className="text-xs text-white/40 mt-1">Chunked hỗ trợ file lớn hơn ~{improvementFactor}× so với single-shot trên máy bạn</p>
+          <p className="text-xs text-slate-600 mt-1 dark:text-white/40">Chunked hỗ trợ file lớn hơn ~{improvementFactor}× so với single-shot trên máy bạn</p>
         </div>
       )}
 
-      <div className="rounded-xl border border-white/[0.08] bg-black/25 p-4 space-y-2">
-        <p className="text-[10px] font-bold text-white/45 uppercase tracking-wider">Đã triển khai trong LockSend</p>
-        <ul className="space-y-2 text-xs text-white/55 leading-relaxed">
+      <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 space-y-2 dark:border-white/[0.08] dark:bg-black/25">
+        <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wider dark:text-white/45">Đã triển khai trong LockSend</p>
+        <ul className="space-y-2 text-xs text-slate-700 leading-relaxed dark:text-white/55">
           <li className="flex gap-2">
             <span className="text-emerald-400 shrink-0">✓</span>
             <span>
-              <strong className="text-white/70">Chunked:</strong> {CHUNK_SIZE_MB}MB/chunk, nonce theo chunk.
+              <strong className="text-slate-900 dark:text-white/70">Chunked:</strong> {CHUNK_SIZE_MB}MB/chunk, nonce theo chunk.
             </span>
           </li>
           <li className="flex gap-2">
             <span className="text-emerald-400 shrink-0">✓</span>
             <span>
-              <strong className="text-white/70">Multipart upload</strong> Azure — không giữ toàn bộ ciphertext trong RAM.
+              <strong className="text-slate-900 dark:text-white/70">Multipart upload</strong> Azure — không giữ toàn bộ ciphertext trong RAM.
             </span>
           </li>
           <li className="flex gap-2">
             <span className="text-emerald-400 shrink-0">✓</span>
             <span>
-              <strong className="text-white/70">Ed25519 manifest</strong> — ký metadata thay vì toàn bộ blob.
+              <strong className="text-slate-900 dark:text-white/70">Ed25519 manifest</strong> — ký metadata thay vì toàn bộ blob.
             </span>
           </li>
           <li className="flex gap-2">
             <span className="text-sky-400/80 shrink-0">→</span>
-            <span className="text-white/40">
-              <strong className="text-white/55">[Tương lai]</strong> Streaming download + decrypt.
+            <span className="text-slate-500 dark:text-white/40">
+              <strong className="text-slate-700 dark:text-white/55">[Tương lai]</strong> Streaming download + decrypt.
             </span>
           </li>
         </ul>
@@ -711,37 +729,37 @@ function SummaryPanel({
 function MethodologyCard() {
   return (
     <div className={`${surfaceCard} p-5 sm:p-6`}>
-      <h3 className="text-sm font-semibold text-white/80 mb-3">Phương pháp kiểm thử</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 text-xs text-white/45 leading-relaxed">
+      <h3 className={`${admin.sectionTitle} mb-3`}>Phương pháp kiểm thử</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 text-xs text-slate-600 leading-relaxed dark:text-white/45">
         <div className="space-y-2">
-          <p className="font-semibold text-white/60 text-[11px] uppercase tracking-wide">Dữ liệu test</p>
+          <p className="font-semibold text-slate-800 text-[11px] uppercase tracking-wide dark:text-white/60">Dữ liệu test</p>
           <p>
-            Plaintext = <code className="text-indigo-300/90 bg-black/40 px-1 rounded">new Uint8Array(N)</code> (zero-filled),
+            Plaintext = <code className="text-indigo-800 bg-indigo-50 px-1 rounded dark:text-indigo-300/90 dark:bg-black/40">new Uint8Array(N)</code> (zero-filled),
             không dùng PRNG.
           </p>
           <p>
-            AES = <code className="text-indigo-300/90 bg-black/40 px-1 rounded">generateKey(AES-GCM 256)</code> mỗi lần.
+            AES = <code className="text-indigo-800 bg-indigo-50 px-1 rounded dark:text-indigo-300/90 dark:bg-black/40">generateKey(AES-GCM 256)</code> mỗi lần.
           </p>
           <p>Nonce: 12 byte ngẫu nhiên (single-shot) / baseNonce + index chunk (chunked).</p>
         </div>
         <div className="space-y-2">
-          <p className="font-semibold text-white/60 text-[11px] uppercase tracking-wide">Đo lường</p>
+          <p className="font-semibold text-slate-800 text-[11px] uppercase tracking-wide dark:text-white/60">Đo lường</p>
           <p>
-            <strong className="text-white/55">Thời gian:</strong>{" "}
-            <code className="text-indigo-300/90 bg-black/40 px-1 rounded">performance.now()</code> quanh{" "}
-            <code className="text-indigo-300/90 bg-black/40 px-1 rounded">encrypt</code>.
+            <strong className="text-slate-800 dark:text-white/55">Thời gian:</strong>{" "}
+            <code className="text-indigo-800 bg-indigo-50 px-1 rounded dark:text-indigo-300/90 dark:bg-black/40">performance.now()</code> quanh{" "}
+            <code className="text-indigo-800 bg-indigo-50 px-1 rounded dark:text-indigo-300/90 dark:bg-black/40">encrypt</code>.
           </p>
           <p>
-            <strong className="text-white/55">Heap:</strong>{" "}
-            <code className="text-indigo-300/90 bg-black/40 px-1 rounded">performance.memory</code> (chủ yếu Chrome).
+            <strong className="text-slate-800 dark:text-white/55">Heap:</strong>{" "}
+            <code className="text-indigo-800 bg-indigo-50 px-1 rounded dark:text-indigo-300/90 dark:bg-black/40">performance.memory</code> (chủ yếu Chrome).
           </p>
           <p>
-            <strong className="text-white/55">OOM:</strong> <code className="text-indigo-300/90 bg-black/40 px-1 rounded">RangeError</code>{" "}
+            <strong className="text-slate-800 dark:text-white/55">OOM:</strong> <code className="text-indigo-800 bg-indigo-50 px-1 rounded dark:text-indigo-300/90 dark:bg-black/40">RangeError</code>{" "}
             hoặc lỗi WebCrypto.
           </p>
         </div>
       </div>
-      <p className="mt-4 text-[11px] text-white/30">
+      <p className="mt-4 text-[11px] text-slate-500 dark:text-white/30">
         Kết quả phụ thuộc RAM, CPU, trình duyệt và tab đang mở. Nên chạy trong tab riêng.
       </p>
     </div>

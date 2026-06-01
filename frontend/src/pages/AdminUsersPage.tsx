@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import api from "../utils/api";
 import PageLoader, { LoadingSpinner } from "../components/LoadingSpinner";
-import { surfaceCard } from "../styles/theme";
+import { admin, surfaceCard } from "../styles/theme";
 
 interface UserRow {
   id: string;
@@ -16,13 +16,10 @@ const ROLE_OPTIONS = ["owner", "recipient", "admin"] as const;
 type Role = (typeof ROLE_OPTIONS)[number];
 
 const ROLE_BADGE: Record<Role, string> = {
-  owner: "bg-indigo-500/20 text-indigo-300 border border-indigo-500/35",
-  recipient: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30",
-  admin: "bg-rose-500/15 text-rose-300 border border-rose-500/35",
+  owner: admin.roleOwner,
+  recipient: admin.roleRecipient,
+  admin: admin.roleAdmin,
 };
-
-const SELECT_BASE =
-  "bg-[#12141c] border border-indigo-500/25 text-white text-xs font-medium rounded-lg px-2.5 py-1.5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/40";
 
 export default function AdminUsersPage() {
   const { user: me } = useAuth();
@@ -81,14 +78,14 @@ export default function AdminUsersPage() {
     <div className="space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold text-white tracking-tight">Quản lý người dùng</h2>
-          <p className="text-sm text-white/40 mt-0.5">Đổi role hoặc xóa tài khoản · Chỉ admin</p>
+          <h2 className={admin.title}>Quản lý người dùng</h2>
+          <p className={admin.desc}>Đổi role hoặc xóa tài khoản · Chỉ admin</p>
         </div>
         <button
           type="button"
           onClick={() => void fetchUsers()}
           disabled={loading}
-          className="inline-flex items-center justify-center gap-2 self-start px-3 py-2 rounded-xl border border-white/12 text-sm text-white/70 hover:bg-white/[0.06] hover:text-white transition disabled:opacity-40"
+          className={`${admin.btnGhost} self-start`}
         >
           {loading ? <LoadingSpinner size="sm" /> : (
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -100,7 +97,7 @@ export default function AdminUsersPage() {
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+        <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">
           <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
           </svg>
@@ -108,7 +105,7 @@ export default function AdminUsersPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-white/38">
+      <div className={`flex flex-wrap gap-x-4 gap-y-2 ${admin.legend}`}>
         {ROLE_OPTIONS.map((r) => (
           <div key={r} className="flex items-center gap-2">
             <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide ${ROLE_BADGE[r]}`}>
@@ -133,42 +130,40 @@ export default function AdminUsersPage() {
             className="py-12"
           />
         ) : users.length === 0 ? (
-          <div className="py-16 text-center text-sm text-white/35">Chưa có user nào</div>
+          <div className={`py-16 text-center ${admin.empty}`}>Chưa có user nào</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[640px]">
               <thead>
-                <tr className="border-b border-white/[0.08] bg-black/25 text-left text-[11px] font-semibold uppercase tracking-wider text-white/40">
+                <tr className={admin.tableHead}>
                   <th className="px-4 sm:px-5 py-3">Người dùng</th>
                   <th className="px-4 sm:px-5 py-3">Role</th>
                   <th className="px-4 sm:px-5 py-3 whitespace-nowrap">Ngày tạo</th>
                   <th className="px-4 sm:px-5 py-3 w-28">Thao tác</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/[0.06]">
+              <tbody className={admin.tableDivide}>
                 {users.map((u) => {
                   const isMe = u.id === me?.user_id;
                   const isBusy = changing === u.id;
                   return (
                     <tr
                       key={u.id}
-                      className={`transition hover:bg-white/[0.03] ${isMe ? "bg-indigo-500/[0.06]" : ""}`}
+                      className={`${admin.rowHover} ${isMe ? admin.rowHighlight : ""}`}
                     >
                       <td className="px-4 sm:px-5 py-3.5">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 font-semibold text-sm shrink-0">
+                          <div className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-800 dark:text-slate-200 font-semibold text-sm shrink-0">
                             {(u.display_name || u.email || "U")[0].toUpperCase()}
                           </div>
                           <div className="min-w-0">
-                            <div className="font-medium text-white/90 flex items-center gap-2 flex-wrap">
+                            <div className={`${admin.cellName} flex items-center gap-2 flex-wrap`}>
                               <span className="truncate">{u.display_name || u.email}</span>
                               {isMe && (
-                                <span className="text-[10px] bg-indigo-500/25 text-indigo-300 px-1.5 py-0.5 rounded-md font-semibold shrink-0">
-                                  Bạn
-                                </span>
+                                <span className={admin.selfTag}>Bạn</span>
                               )}
                             </div>
-                            <div className="text-xs text-white/35 truncate">{u.email}</div>
+                            <div className={`${admin.cellSub} truncate`}>{u.email}</div>
                           </div>
                         </div>
                       </td>
@@ -183,10 +178,10 @@ export default function AdminUsersPage() {
                             value={u.role}
                             disabled={isBusy}
                             onChange={(e) => void handleRoleChange(u.id, e.target.value as Role)}
-                            className={`${SELECT_BASE} ${isBusy ? "opacity-50 cursor-not-allowed" : ""}`}
+                            className={`${admin.select} ${isBusy ? "opacity-50 cursor-not-allowed" : ""}`}
                           >
                             {ROLE_OPTIONS.map((r) => (
-                              <option key={r} value={r} className="bg-[#12141c]">
+                              <option key={r} value={r} className="bg-slate-900 text-white">
                                 {r}
                               </option>
                             ))}
@@ -194,7 +189,7 @@ export default function AdminUsersPage() {
                         )}
                       </td>
 
-                      <td className="px-4 sm:px-5 py-3.5 text-xs text-white/40 whitespace-nowrap tabular-nums">
+                      <td className={`px-4 sm:px-5 py-3.5 ${admin.cellMeta}`}>
                         {new Date(u.created_at).toLocaleDateString("vi-VN", {
                           day: "2-digit",
                           month: "2-digit",
@@ -208,7 +203,7 @@ export default function AdminUsersPage() {
                             type="button"
                             onClick={() => void handleDelete(u.id, u.email)}
                             disabled={isBusy}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-rose-400/90 border border-rose-500/25 hover:bg-rose-500/10 transition disabled:opacity-40"
+                            className={admin.deleteBtn}
                           >
                             {isBusy ? (
                               <LoadingSpinner size="xs" />
@@ -230,7 +225,7 @@ export default function AdminUsersPage() {
         )}
       </div>
 
-      <p className="text-center text-[11px] text-white/30 tabular-nums">
+      <p className={admin.footer}>
         Tổng {users.length} tài khoản · {users.filter((u) => u.role === "owner").length} owner ·{" "}
         {users.filter((u) => u.role === "recipient").length} recipient · {users.filter((u) => u.role === "admin").length}{" "}
         admin

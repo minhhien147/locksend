@@ -182,5 +182,74 @@ export const table = {
   cell: "px-4 py-3 text-sm text-slate-700 dark:text-slate-300",
 };
 
+/** Admin — chế độ sáng: nền đen/chìm + chữ sáng trên chip/bảng; dark giữ glass style cũ */
+export const admin = {
+  title: "text-lg font-bold text-slate-900 dark:text-white tracking-tight",
+  desc: "text-sm text-slate-600 dark:text-white/40 mt-0.5",
+  legend: "text-[11px] text-slate-600 dark:text-white/38",
+  footer: "text-center text-[11px] text-slate-500 dark:text-white/30 tabular-nums",
+  empty: "text-sm text-slate-500 dark:text-white/35",
+  btnGhost:
+    "inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-sm transition disabled:opacity-40 " +
+    "border-slate-300 text-slate-700 hover:bg-slate-100 " +
+    "dark:border-white/12 dark:text-white/70 dark:hover:bg-white/[0.06] dark:hover:text-white",
+  tableHead:
+    "border-b text-left text-[11px] font-semibold uppercase tracking-wider " +
+    "border-slate-200 bg-slate-900 text-white/90 " +
+    "dark:border-white/[0.08] dark:bg-black/25 dark:text-white/40",
+  tableDivide: "divide-y divide-slate-100 dark:divide-white/[0.06]",
+  rowHover: "transition hover:bg-slate-50 dark:hover:bg-white/[0.03]",
+  rowHighlight: "bg-indigo-50 dark:bg-indigo-500/[0.06]",
+  cellName: "font-medium text-slate-900 dark:text-white/90",
+  cellSub: "text-xs text-slate-500 dark:text-white/35",
+  cellMeta: "text-xs text-slate-600 dark:text-white/40 whitespace-nowrap tabular-nums",
+  select:
+    "text-xs font-medium rounded-lg px-2.5 py-1.5 cursor-pointer focus:outline-none focus:ring-2 " +
+    "bg-slate-900 border border-slate-600 text-white focus:ring-indigo-500/40 " +
+    "dark:bg-[#12141c] dark:border-indigo-500/25 dark:focus:ring-indigo-500/40",
+  navActiveUsers:
+    "bg-slate-900 text-rose-200 ring-1 ring-slate-600 shadow-sm " +
+    "dark:bg-rose-500/20 dark:text-rose-300 dark:ring-rose-400/30",
+  navActiveToken:
+    "bg-slate-900 text-violet-200 ring-1 ring-slate-600 shadow-sm " +
+    "dark:bg-violet-500/20 dark:text-violet-300 dark:ring-violet-400/30",
+  navActiveStress:
+    "bg-slate-900 text-amber-200 ring-1 ring-slate-600 shadow-sm " +
+    "dark:bg-amber-500/20 dark:text-amber-300 dark:ring-amber-400/30",
+  navInactive: `${nav.inactive} hover:bg-slate-100 dark:hover:bg-white/[0.05]`,
+  roleOwner:
+    "bg-slate-900 text-indigo-200 border border-slate-600 " +
+    "dark:bg-indigo-500/20 dark:text-indigo-300 dark:border-indigo-500/35",
+  roleRecipient:
+    "bg-slate-900 text-emerald-200 border border-slate-600 " +
+    "dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30",
+  roleAdmin:
+    "bg-slate-900 text-rose-200 border border-slate-600 " +
+    "dark:bg-rose-500/15 dark:text-rose-300 dark:border-rose-500/35",
+  selfTag:
+    "text-[10px] px-1.5 py-0.5 rounded-md font-semibold shrink-0 " +
+    "bg-slate-800 text-indigo-200 dark:bg-indigo-500/25 dark:text-indigo-300",
+  deleteBtn:
+    "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition disabled:opacity-40 " +
+    "text-rose-700 border border-rose-300 hover:bg-rose-50 " +
+    "dark:text-rose-400/90 dark:border-rose-500/25 dark:hover:bg-rose-500/10",
+  /** Chip/metric trên nền sáng — nền đen chữ sáng */
+  ink: "bg-slate-900 text-white dark:bg-white/[0.06] dark:text-white/70",
+  inkMuted: "text-white/80 dark:text-white/35",
+  inkLabel: "text-white/70 dark:text-white/70",
+  sectionTitle: "text-sm font-semibold text-slate-900 dark:text-white/70",
+  tabActive: "bg-slate-900 text-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-300",
+  tabInactive: "text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-white/40 dark:hover:text-white/70 dark:hover:bg-white/[0.05]",
+  tableHeadInner:
+    "text-left text-[11px] border-b " +
+    "border-slate-200 text-slate-600 bg-slate-100 " +
+    "dark:border-white/[0.05] dark:text-white/30 dark:bg-transparent",
+  rowInner: "border-b border-slate-100 hover:bg-slate-50 dark:border-white/[0.04] dark:hover:bg-white/[0.02]",
+  cellInner: "text-slate-800 dark:text-white/80",
+  cellInnerSub: "text-slate-500 dark:text-white/30",
+  divider: "border-slate-200 dark:border-white/[0.05]",
+  dividerLight: "bg-slate-200 dark:bg-white/10",
+};
+
 export const linkAccent =
   "text-indigo-600 hover:text-indigo-800 font-medium dark:text-indigo-400 dark:hover:text-indigo-300";
