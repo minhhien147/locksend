@@ -20,7 +20,8 @@ import type { EncryptionMetadata, ChunkedEncryptionMetadata } from "./crypto";
 function resolveApiBaseUrl(): string {
   const fromEnv = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
   if (fromEnv) return fromEnv.replace(/\/$/, "");
-  if (import.meta.env.DEV) return "http://localhost:8000";
+  // Dev: Vite proxy → backend :8000 (tránh CORS, xem vite.config.ts)
+  if (import.meta.env.DEV) return "/api";
   return "";
 }
 
@@ -208,6 +209,29 @@ export async function changePasswordApi(
   return res.data;
 }
 
+export async function updateProfileApi(display_name: string): Promise<TokenResponse> {
+  const res = await api.patch<TokenResponse>("/auth/me", { display_name });
+  return res.data;
+}
+
+export interface DisplayNameHistoryItem {
+  id: string;
+  old_display_name: string | null;
+  new_display_name: string;
+  changed_at: string;
+  ip_address: string | null;
+}
+
+export async function fetchMyDisplayNameHistory(
+  limit = 20
+): Promise<DisplayNameHistoryItem[]> {
+  const res = await api.get<DisplayNameHistoryItem[]>(
+    "/auth/me/display-name-history",
+    { params: { limit } }
+  );
+  return res.data;
+}
+
 // ── Upload API ────────────────────────────────────────────────────────────────
 
 export interface UploadResponse {
@@ -237,12 +261,15 @@ export interface RecipientPayload {
 }
 
 /** Upload ciphertext + metadata lên backend (single-shot, dành cho file nhỏ) */
+export type StorageMode = "share" | "vault";
+
 export async function uploadEncryptedFile(
   ciphertext: Uint8Array,
   metadata: EncryptionMetadata,
   fileName: string,
   onProgress?: (percent: number) => void,
-  recipients?: RecipientPayload[]
+  recipients?: RecipientPayload[],
+  options?: { storageMode?: StorageMode; folderId?: string | null }
 ): Promise<UploadResponse> {
   const formData = new FormData();
   const blob = new Blob([new Uint8Array(ciphertext)], {
@@ -250,6 +277,10 @@ export async function uploadEncryptedFile(
   });
   formData.append("file", blob, fileName + ".enc");
   formData.append("metadata_json", JSON.stringify(metadata));
+  formData.append("storage_mode", options?.storageMode ?? "share");
+  if (options?.storageMode === "vault" && options.folderId) {
+    formData.append("folder_id", options.folderId);
+  }
   if (recipients && recipients.length > 0) {
     formData.append("recipients_json", JSON.stringify(recipients));
   }
@@ -307,7 +338,8 @@ export async function finalizeMultipartUpload(
   blobName: string,
   chunkCount: number,
   metadata: ChunkedEncryptionMetadata,
-  recipients?: RecipientPayload[]
+  recipients?: RecipientPayload[],
+  options?: { storageMode?: StorageMode; folderId?: string | null }
 ): Promise<UploadResponse> {
   const response = await api.post<UploadResponse>(
     `/upload/multipart/${encodeURIComponent(blobName)}/finalize`,
@@ -315,6 +347,8 @@ export async function finalizeMultipartUpload(
       chunk_count: chunkCount,
       metadata_json: JSON.stringify(metadata),
       recipients: recipients ?? [],
+      storage_mode: options?.storageMode ?? "share",
+      folder_id: options?.storageMode === "vault" ? options.folderId ?? null : null,
     }
   );
   return response.data;
@@ -364,17 +398,13 @@ export async function recordDownloadLog(params: {
   }
 }
 
-/** Tải ciphertext từ SAS URL (trực tiếp từ Azure) */
-export async function downloadCiphertext(sasUrl: string): Promise<{
-  ciphertext: Uint8Array;
-  metadata: EncryptionMetadata;
-  serverFileId?: string;
-}> {
-  const response = await axios.get(sasUrl, { responseType: "arraybuffer" });
-  const headers = response.headers as Record<string, unknown>;
-
-  // Thử key mới (base64-encoded, hỗ trợ Unicode) trước, fallback key cũ
-  const b64Header = _headerCi(headers, "x-ms-meta-encryption_metadata_b64");
+function _parseEncryptionMetadataFromHeaders(
+  headers: Record<string, unknown>,
+  fallback?: Record<string, unknown>
+): EncryptionMetadata {
+  const b64Header =
+    _headerCi(headers, "x-encryption-metadata-b64") ??
+    _headerCi(headers, "x-ms-meta-encryption_metadata_b64");
   const rawHeader = _headerCi(headers, "x-ms-meta-encryption_metadata");
 
   let metadataJson: string | null = null;
@@ -382,15 +412,50 @@ export async function downloadCiphertext(sasUrl: string): Promise<{
     metadataJson = atob(b64Header);
   } else if (rawHeader) {
     metadataJson = decodeURIComponent(rawHeader);
+  } else if (fallback && Object.keys(fallback).length > 0) {
+    return fallback as unknown as EncryptionMetadata;
   }
 
   if (!metadataJson) {
-    throw new Error("Không tìm thấy metadata mã hóa trong blob.");
+    throw new Error("Không tìm thấy metadata mã hóa.");
   }
+  return JSON.parse(metadataJson) as EncryptionMetadata;
+}
 
-  const metadata: EncryptionMetadata = JSON.parse(metadataJson);
+/** Tải ciphertext từ SAS URL (trực tiếp từ Azure) */
+export async function downloadCiphertext(
+  sasUrl: string,
+  fallbackMetadata?: Record<string, unknown>
+): Promise<{
+  ciphertext: Uint8Array;
+  metadata: EncryptionMetadata;
+  serverFileId?: string;
+}> {
+  const response = await axios.get(sasUrl, { responseType: "arraybuffer" });
+  const headers = response.headers as Record<string, unknown>;
+  const metadata = _parseEncryptionMetadataFromHeaders(headers, fallbackMetadata);
   const ciphertext = new Uint8Array(response.data);
-  const serverFileId = _headerCi(headers, "x-ms-meta-file_id");
+  const serverFileId =
+    _headerCi(headers, "x-file-id") ?? _headerCi(headers, "x-ms-meta-file_id");
+  return { ciphertext, metadata, serverFileId };
+}
+
+/** Tải ciphertext file kho qua backend (tránh CORS Azure). */
+export async function downloadVaultCiphertext(
+  fileId: string,
+  fallbackMetadata?: Record<string, unknown>
+): Promise<{
+  ciphertext: Uint8Array;
+  metadata: EncryptionMetadata;
+  serverFileId?: string;
+}> {
+  const response = await api.get(`/vault/files/${fileId}/ciphertext`, {
+    responseType: "arraybuffer",
+  });
+  const headers = response.headers as Record<string, unknown>;
+  const metadata = _parseEncryptionMetadataFromHeaders(headers, fallbackMetadata);
+  const ciphertext = new Uint8Array(response.data as ArrayBuffer);
+  const serverFileId = _headerCi(headers, "x-file-id") ?? fileId;
   return { ciphertext, metadata, serverFileId };
 }
 
@@ -511,6 +576,99 @@ export interface FileHistoryItem {
   created_at: string;
   updated_at: string;
   recipients: RecipientInfo[];
+  storage_mode?: string;
+  folder_id?: string | null;
+  shared_count?: number;
+}
+
+// ── Vault (personal storage) ──────────────────────────────────────────────────
+
+export interface VaultQuota {
+  used_bytes: number;
+  quota_bytes: number;
+  file_count: number;
+}
+
+export interface VaultFolder {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  file_count: number;
+  created_at: string;
+}
+
+export interface VaultFile {
+  file_id: string;
+  blob_name: string;
+  original_filename: string;
+  content_type: string | null;
+  file_size_bytes: number;
+  encryption_alg: string;
+  chunk_count: number;
+  created_at: string;
+  updated_at: string;
+  folder_id: string | null;
+  shared_count: number;
+  can_share: boolean;
+  encryption_metadata: Record<string, unknown>;
+}
+
+export async function getVaultQuota(): Promise<VaultQuota> {
+  const res = await api.get<VaultQuota>("/vault/quota");
+  return res.data;
+}
+
+export async function getVaultFolders(): Promise<VaultFolder[]> {
+  const res = await api.get<VaultFolder[]>("/vault/folders");
+  return res.data;
+}
+
+export async function createVaultFolder(
+  name: string,
+  parentId?: string | null
+): Promise<VaultFolder> {
+  const res = await api.post<VaultFolder>("/vault/folders", {
+    name,
+    parent_id: parentId ?? null,
+  });
+  return res.data;
+}
+
+export async function deleteVaultFolder(folderId: string): Promise<void> {
+  await api.delete(`/vault/folders/${folderId}`);
+}
+
+export async function getVaultFiles(params?: {
+  folderId?: string | null;
+  q?: string;
+}): Promise<VaultFile[]> {
+  const res = await api.get<VaultFile[]>("/vault/files", {
+    params: {
+      folder_id: params?.folderId ?? undefined,
+      q: params?.q?.trim() || undefined,
+    },
+  });
+  return res.data;
+}
+
+export async function patchVaultFile(
+  fileId: string,
+  body: { folder_id?: string | null; original_filename?: string }
+): Promise<VaultFile> {
+  const res = await api.patch<VaultFile>(`/vault/files/${fileId}`, body);
+  return res.data;
+}
+
+export async function deleteVaultFile(fileId: string): Promise<void> {
+  await api.delete(`/vault/files/${fileId}`);
+}
+
+export async function shareVaultFile(
+  fileId: string,
+  recipients: RecipientPayload[]
+): Promise<{ status: string; recipients_added: number }> {
+  const res = await api.post(`/vault/files/${fileId}/share`, { recipients });
+  return res.data;
 }
 
 export interface FreshSasResponse {

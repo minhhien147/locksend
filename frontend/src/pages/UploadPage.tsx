@@ -5,7 +5,14 @@ import {
   fromBase64,
 } from "../utils/crypto";
 import { isUnlocked } from "../utils/keyVault";
-import { useUpload, type ChunkProgress, type RecipientUser } from "../hooks/useUpload";
+import {
+  useUpload,
+  type ChunkProgress,
+  type RecipientUser,
+  type UploadPurpose,
+} from "../hooks/useUpload";
+import { getVaultFolders, type VaultFolder } from "../utils/api";
+import { Link } from "react-router-dom";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import KeyUnlockBanner from "../components/KeyUnlockBanner";
 import { searchUsers, getUserPublicKey, type UserSearchResult } from "../utils/api";
@@ -42,6 +49,9 @@ export default function UploadPage() {
   const canUseKeys = keysReady;
   const [file, setFile] = useState<File | null>(null);
   const [recipientPublicKey, setRecipientPublicKey] = useState("");
+  const [uploadPurpose, setUploadPurpose] = useState<UploadPurpose>("share");
+  const [vaultFolderId, setVaultFolderId] = useState<string | null>(null);
+  const [vaultFolders, setVaultFolders] = useState<VaultFolder[]>([]);
   const [recipientMode, setRecipientMode] = useState<RecipientMode>("search");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
@@ -69,6 +79,12 @@ export default function UploadPage() {
     setKeysReady(isUnlocked());
     void syncPublicKeysToServer();
   };
+
+  useEffect(() => {
+    if (uploadPurpose === "vault") {
+      void getVaultFolders().then(setVaultFolders).catch(() => setVaultFolders([]));
+    }
+  }, [uploadPurpose]);
 
   useEffect(() => {
     if (searchTimerRef.current !== null) window.clearTimeout(searchTimerRef.current);
@@ -174,6 +190,7 @@ export default function UploadPage() {
           copied={copied}
           onCopy={handleCopySasUrl}
           onReset={handleReset}
+          purpose={uploadPurpose}
         />
       </div>
     );
@@ -184,6 +201,43 @@ export default function UploadPage() {
       <PageHeader title="Upload" />
 
       <KeyUnlockBanner onUnlocked={onKeysUnlocked} />
+
+      <Card className="space-y-3">
+        <h2 className={sectionTitle}>Chế độ</h2>
+        <SegmentedControl
+          value={uploadPurpose}
+          onChange={(v) => setUploadPurpose(v as UploadPurpose)}
+          disabled={isBusy}
+          options={[
+            { value: "share", label: "Gửi cho người khác" },
+            { value: "vault", label: "Lưu vào kho cá nhân" },
+          ]}
+        />
+        {uploadPurpose === "vault" && (
+          <div>
+            <label className={label}>Thư mục (tuỳ chọn)</label>
+            <select
+              value={vaultFolderId ?? ""}
+              onChange={(e) => setVaultFolderId(e.target.value || null)}
+              disabled={isBusy}
+              className={`w-full mt-1 text-sm ${inputBase}`}
+            >
+              <option value="">Gốc (không thư mục)</option>
+              {vaultFolders.map((fo) => (
+                <option key={fo.id} value={fo.id}>
+                  {fo.name}
+                </option>
+              ))}
+            </select>
+            <p className={`text-xs mt-1.5 ${text.faint}`}>
+              Quản lý đầy đủ tại{" "}
+              <Link to="/profile" className="text-indigo-400 hover:underline">
+                Kho lưu trữ
+              </Link>
+            </p>
+          </div>
+        )}
+      </Card>
 
       <div
         onDrop={handleDrop}
@@ -218,6 +272,7 @@ export default function UploadPage() {
         )}
       </div>
 
+      {uploadPurpose === "share" && (
       <Card className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <h2 className={sectionTitle}>Người nhận</h2>
@@ -335,6 +390,7 @@ export default function UploadPage() {
           </div>
         )}
       </Card>
+      )}
 
       {error && <Alert tone="error">{error}</Alert>}
 
@@ -358,14 +414,19 @@ export default function UploadPage() {
           isBusy ||
           !canUseKeys ||
           !file ||
-          (recipientMode === "search" && (selectedRecipients.length === 0 || keyLoading)) ||
-          (recipientMode === "manual" && !recipientPublicKey.trim())
+          (uploadPurpose === "share" &&
+            recipientMode === "search" &&
+            (selectedRecipients.length === 0 || keyLoading)) ||
+          (uploadPurpose === "share" &&
+            recipientMode === "manual" &&
+            !recipientPublicKey.trim())
         }
         onClick={() =>
           encryptAndUpload(
             file,
             recipientMode === "search" ? selectedRecipients : [],
-            recipientMode === "manual" ? recipientPublicKey : undefined
+            recipientMode === "manual" ? recipientPublicKey : undefined,
+            { purpose: uploadPurpose, folderId: vaultFolderId }
           )
         }
       >
@@ -377,7 +438,9 @@ export default function UploadPage() {
             ? isChunkedMode
               ? "Multipart upload…"
               : "Đang upload…"
-            : "Mã hóa & Upload"}
+            : uploadPurpose === "vault"
+              ? "Lưu vào kho"
+              : "Mã hóa & Upload"}
       </Button>
 
     </div>
@@ -409,31 +472,46 @@ function ChunkProgressBar({ progress }: { progress: ChunkProgress }) {
 }
 
 function DoneCard({
-  sasUrl, copied, onCopy, onReset,
+  sasUrl,
+  copied,
+  onCopy,
+  onReset,
+  purpose,
 }: {
   sasUrl: string;
   copied: boolean;
   onCopy: () => void;
   onReset: () => void;
+  purpose: UploadPurpose;
 }) {
   return (
     <div className="space-y-5">
       <PageHeader title="Upload" />
 
-      <Alert tone="success">Upload thành công</Alert>
+      <Alert tone="success">
+        {purpose === "vault" ? "Đã lưu vào kho cá nhân" : "Upload thành công"}
+      </Alert>
 
-      <Card className="space-y-3">
-        <label className={label}>SAS link</label>
-        <div className="flex gap-2">
-          <input readOnly value={sasUrl} className={`flex-1 text-xs font-mono ${inputBase}`} />
-          <Button variant="secondary" onClick={onCopy}>
-            {copied ? "Đã copy" : "Copy"}
-          </Button>
-        </div>
-      </Card>
+      {purpose === "share" && (
+        <Card className="space-y-3">
+          <label className={label}>SAS link</label>
+          <div className="flex gap-2">
+            <input readOnly value={sasUrl} className={`flex-1 text-xs font-mono ${inputBase}`} />
+            <Button variant="secondary" onClick={onCopy}>
+              {copied ? "Đã copy" : "Copy"}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {purpose === "vault" && (
+        <Link to="/profile">
+          <Button fullWidth>Mở kho lưu trữ</Button>
+        </Link>
+      )}
 
       <Button variant="secondary" fullWidth onClick={onReset}>
-        Upload file khác
+        {purpose === "vault" ? "Lưu file khác" : "Upload file khác"}
       </Button>
     </div>
   );

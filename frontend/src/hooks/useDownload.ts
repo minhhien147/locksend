@@ -7,7 +7,11 @@ import {
   type EncryptionMetadata,
 } from "../utils/crypto";
 import { getKeys } from "../utils/keyVault";
-import { downloadCiphertext, recordDownloadLog } from "../utils/api";
+import {
+  downloadCiphertext,
+  downloadVaultCiphertext,
+  recordDownloadLog,
+} from "../utils/api";
 import { saveDownloadEntry } from "../utils/downloadHistory";
 
 export type DownloadStage =
@@ -33,6 +37,10 @@ interface UseDownloadState {
 
 export interface UseDownloadReturn extends UseDownloadState {
   downloadAndDecrypt: (sasUrl: string) => Promise<void>;
+  downloadVaultFile: (
+    fileId: string,
+    encryptionMetadata: Record<string, unknown>
+  ) => Promise<void>;
   reset: () => void;
 }
 
@@ -48,15 +56,14 @@ const initialState: UseDownloadState = {
 export function useDownload(): UseDownloadReturn {
   const [state, setState] = useState<UseDownloadState>(initialState);
 
-  async function downloadAndDecrypt(sasUrl: string): Promise<void> {
-    if (!sasUrl.trim()) {
-      setState((prev) => ({
-        ...prev,
-        error: "Vui lòng nhập SAS Link.",
-      }));
-      return;
-    }
-
+  async function runDecryptPipeline(
+    load: () => Promise<{
+      ciphertext: Uint8Array;
+      metadata: EncryptionMetadata;
+      serverFileId?: string;
+    }>,
+    logSasUrl: string
+  ): Promise<void> {
     const myKeys = getKeys();
     if (!myKeys) {
       setState((prev) => ({
@@ -77,8 +84,7 @@ export function useDownload(): UseDownloadReturn {
     });
 
     try {
-      const { ciphertext, metadata, serverFileId } =
-        await downloadCiphertext(sasUrl.trim());
+      const { ciphertext, metadata, serverFileId } = await load();
 
       setState((prev) => ({
         ...prev,
@@ -117,7 +123,7 @@ export function useDownload(): UseDownloadReturn {
       downloadBlob(plaintext, metadata.fileName, metadata.mimeType);
 
       saveDownloadEntry({
-        sasUrl: sasUrl.trim(),
+        sasUrl: logSasUrl,
         fileName: metadata.fileName,
         mimeType: metadata.mimeType,
         fileSizeBytes: plaintext.byteLength,
@@ -127,7 +133,7 @@ export function useDownload(): UseDownloadReturn {
       });
 
       void recordDownloadLog({
-        sasUrl: sasUrl.trim(),
+        sasUrl: logSasUrl,
         serverFileId,
       });
 
@@ -151,6 +157,30 @@ export function useDownload(): UseDownloadReturn {
     }
   }
 
+  async function downloadAndDecrypt(sasUrl: string): Promise<void> {
+    if (!sasUrl.trim()) {
+      setState((prev) => ({
+        ...prev,
+        error: "Vui lòng nhập SAS Link.",
+      }));
+      return;
+    }
+    await runDecryptPipeline(
+      () => downloadCiphertext(sasUrl.trim()),
+      sasUrl.trim()
+    );
+  }
+
+  async function downloadVaultFile(
+    fileId: string,
+    encryptionMetadata: Record<string, unknown>
+  ): Promise<void> {
+    await runDecryptPipeline(
+      () => downloadVaultCiphertext(fileId, encryptionMetadata),
+      `vault://${fileId}`
+    );
+  }
+
   function reset() {
     setState(initialState);
   }
@@ -158,6 +188,7 @@ export function useDownload(): UseDownloadReturn {
   return {
     ...state,
     downloadAndDecrypt,
+    downloadVaultFile,
     reset,
   };
 }

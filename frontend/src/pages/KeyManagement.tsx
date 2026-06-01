@@ -28,7 +28,9 @@ import {
   isUnlocked,
   lockKeys,
   clearAll,
+  onLock,
 } from "../utils/keyVault";
+import { fetchServerEncryptedBlob } from "../utils/keySync";
 import {
   storeMyPublicKey,
   fetchMyEncryptedKeyBlob,
@@ -48,6 +50,7 @@ import {
 type PageState =
   | { phase: "loading" }
   | { phase: "no_keys"; hasLegacy: boolean }
+  | { phase: "blob_missing"; hasLegacy: boolean }
   | { phase: "locked"; blob: string }
   | { phase: "unlocked"; keys: UnlockedKeyPairs };
 
@@ -85,8 +88,10 @@ export default function KeyManagement() {
       }
       // Fetch server blob
       const data = await fetchMyEncryptedKeyBlob();
-      if (!data.has_keys || !data.encrypted_key_blob) {
+      if (!data.has_keys) {
         setPageState({ phase: "no_keys", hasLegacy: hasLegacyLocalStorageKey() });
+      } else if (!data.encrypted_key_blob) {
+        setPageState({ phase: "blob_missing", hasLegacy: hasLegacyLocalStorageKey() });
       } else {
         setPageState({ phase: "locked", blob: data.encrypted_key_blob });
       }
@@ -96,6 +101,20 @@ export default function KeyManagement() {
   }
 
   useEffect(() => { void loadState(); }, []);
+
+  useEffect(() => {
+    const onVaultUnlocked = () => {
+      const k = getKeys();
+      if (k) setPageState({ phase: "unlocked", keys: k });
+      else void loadState();
+    };
+    const unsubLock = onLock(() => { void loadState(); });
+    window.addEventListener("ls-vault-unlocked", onVaultUnlocked);
+    return () => {
+      unsubLock();
+      window.removeEventListener("ls-vault-unlocked", onVaultUnlocked);
+    };
+  }, []);
 
   useEffect(() => () => {
     if (statusTimerRef.current !== null) clearTimeout(statusTimerRef.current);
@@ -253,10 +272,12 @@ export default function KeyManagement() {
     try {
       const externalId = getMyExternalId();
       if (!externalId) throw new Error("Không lấy được user id");
+      const encryptedKeyBlob = await fetchServerEncryptedBlob();
       await storeMyPublicKey({
         externalId,
         publicKeyX25519: toBase64(pageState.keys.x25519.publicKey),
         publicKeyEd25519: toBase64(pageState.keys.ed25519.publicKey),
+        ...(encryptedKeyBlob ? { encryptedKeyBlob } : {}),
       });
       showStatus("Public key đã được đồng bộ lên server.");
     } catch {
@@ -323,6 +344,51 @@ export default function KeyManagement() {
       {pageState.phase === "loading" && (
         <div className="flex justify-center py-12">
           <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
+
+      {/* Public keys on server but encrypted blob was lost (e.g. old pubkey-only sync) */}
+      {pageState.phase === "blob_missing" && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-rose-400/40 bg-rose-100/80 px-4 py-4 space-y-2 dark:border-rose-500/25 dark:bg-rose-500/8">
+            <p className="text-sm font-medium text-rose-900 dark:text-rose-200">
+              Server có public key nhưng thiếu blob mã hóa (passphrase).
+            </p>
+            <p className={`text-xs ${text.secondary}`}>
+              Không tạo keypair mới — sẽ mất quyền giải mã file trong kho. Dùng Migrate nếu còn key cũ trong trình duyệt, hoặc mở khóa bằng modal Passphrase nếu blob vừa được khôi phục.
+            </p>
+            <button
+              type="button"
+              onClick={() => void loadState()}
+              className={`text-xs font-medium underline ${text.secondary} hover:no-underline`}
+            >
+              Tải lại trạng thái
+            </button>
+          </div>
+          {pageState.hasLegacy && (
+            <div className="rounded-xl border border-amber-400/40 bg-amber-100/80 px-4 py-4 space-y-3 dark:border-amber-500/25 dark:bg-amber-500/8">
+              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">Key cũ (localStorage)</p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="password"
+                  value={legacyPassphrase}
+                  onChange={(e) => setLegacyPassphrase(e.target.value)}
+                  placeholder="Passphrase của key cũ"
+                  autoComplete="current-password"
+                  disabled={busy}
+                  className={`flex-1 ${inputBase}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleLegacyMigrate()}
+                  disabled={busy || !legacyPassphrase}
+                  className="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold bg-amber-200/80 border border-amber-400/50 text-amber-900 disabled:opacity-40 dark:bg-amber-500/20 dark:border-amber-500/30 dark:text-amber-200"
+                >
+                  Migrate
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

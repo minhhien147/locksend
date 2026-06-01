@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, NavLink, Navigate, Link } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import ThemeToggle from "./components/ThemeToggle";
@@ -14,9 +14,8 @@ import StressTestPage from "./pages/StressTestPage";
 import AdminLayout from "./pages/AdminLayout";
 import AdminUsersPage from "./pages/AdminUsersPage";
 import AdminTokenSecurityPage from "./pages/AdminTokenSecurityPage";
-import HistoryPage from "./pages/HistoryPage";
+import ProfilePage from "./pages/ProfilePage";
 import { LockSendMark } from "./components/LockSendLogo";
-import ChangePasswordDialog from "./components/ChangePasswordDialog";
 import { useKeySync } from "./hooks/useKeySync";
 import FloatingCryptoIcons from "./components/FloatingCryptoIcons";
 import KeyUnlockModal from "./components/KeyUnlockModal";
@@ -59,9 +58,8 @@ const ROLE_CONFIG: Record<string, { label: string; badgeClass: string }> = {
 };
 
 function AppShell() {
-  const { user, logout, changePassword } = useAuth();
+  const { user, logout } = useAuth();
   useKeySync(!!user && user.role !== "recipient");
-  const [pwdOpen, setPwdOpen] = useState(false);
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const role = user?.role ?? "owner";
   const roleCfg = ROLE_CONFIG[role] ?? ROLE_CONFIG.owner;
@@ -132,8 +130,8 @@ function AppShell() {
           <nav className="flex items-center gap-0.5 flex-1 justify-center">
             {!isRecipient && <TopNavItem to="/" label="Upload" icon="upload" />}
             <TopNavItem to="/download" label="Download" icon="download" />
-            <TopNavItem to="/history" label="Lịch sử" icon="history" />
             <TopNavItem to="/keys" label="Keys" icon="key" />
+            <TopNavItem to="/profile" label="Hồ sơ" icon="profile" />
             {isAdmin && <TopNavItem to="/admin" label="Admin" icon="admin" danger />}
           </nav>
 
@@ -141,27 +139,23 @@ function AppShell() {
           <div className="flex items-center gap-2 shrink-0">
             <ThemeToggle />
             <div className={`flex items-center gap-2.5 pl-3 border-l ${header.divider}`}>
-              <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-[11px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
-                {initials}
-              </div>
-              <div className="hidden sm:flex flex-col leading-none gap-0.5">
-                <span className={`text-[12px] font-medium max-w-[110px] truncate ${text.secondary}`}>
-                  {user?.display_name || user?.email}
-                </span>
-                <span className={`${roleCfg.badgeClass} w-fit`}>
-                  {roleCfg.label}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPwdOpen(true)}
-                title="Đổi mật khẩu"
-                className={`p-1.5 rounded-lg transition ${text.faint} hover:text-indigo-600 hover:bg-indigo-200/50 dark:hover:text-indigo-400 dark:hover:bg-indigo-400/10`}
+              <Link
+                to="/profile"
+                title="Hồ sơ"
+                className="flex items-center gap-2.5 rounded-lg pr-1 -ml-1 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition"
               >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                </svg>
-              </button>
+                <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-[11px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                  {initials}
+                </div>
+                <div className="hidden sm:flex flex-col leading-none gap-0.5">
+                  <span className={`text-[12px] font-medium max-w-[110px] truncate ${text.secondary}`}>
+                    {user?.display_name || user?.email}
+                  </span>
+                  <span className={`${roleCfg.badgeClass} w-fit`}>
+                    {roleCfg.label}
+                  </span>
+                </div>
+              </Link>
               <button
                 onClick={() => void logout()}
                 title="Sign out"
@@ -181,9 +175,11 @@ function AppShell() {
         <Routes>
           <Route path="/" element={isRecipient ? <DownloadPage /> : <UploadPage />} />
           <Route path="/download" element={<DownloadPage />} />
-          <Route path="/shared" element={<Navigate to="/history" replace />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/shared" element={<Navigate to="/profile?tab=history" replace />} />
+          <Route path="/history" element={<Navigate to="/profile?tab=history" replace />} />
+          <Route path="/vault" element={<Navigate to="/profile" replace />} />
           <Route path="/keys" element={<KeyManagement />} />
-          <Route path="/history" element={<HistoryPage />} />
           <Route path="/stress-test" element={<Navigate to="/admin/stress" replace />} />
           <Route
             path="/admin/*"
@@ -206,11 +202,6 @@ function AppShell() {
       <footer className={header.footer}>
         <p className={`text-[11px] ${text.faint}`}>FPT University — Information Security</p>
       </footer>
-      <ChangePasswordDialog
-        open={pwdOpen}
-        onClose={() => setPwdOpen(false)}
-        onSubmit={(current, next) => changePassword(current, next)}
-      />
       </div>
     </div>
   );
@@ -232,6 +223,11 @@ const NAV_ICONS: Record<string, React.ReactElement> = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   ),
+  vault: (
+    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h10a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
+    </svg>
+  ),
   key: (
     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
@@ -245,6 +241,11 @@ const NAV_ICONS: Record<string, React.ReactElement> = {
   inbox: (
     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+    </svg>
+  ),
+  profile: (
+    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
     </svg>
   ),
 };

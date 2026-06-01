@@ -10,7 +10,7 @@ interface KeyUnlockBannerProps {
   onUnlocked?: () => void;
 }
 
-type BannerState = "checking" | "no_keys" | "locked" | "unlocked";
+type BannerState = "checking" | "no_keys" | "blob_missing" | "locked" | "unlocked";
 
 export default function KeyUnlockBanner({ onUnlocked }: KeyUnlockBannerProps) {
   const [bannerState, setBannerState] = useState<BannerState>("checking");
@@ -26,8 +26,10 @@ export default function KeyUnlockBanner({ onUnlocked }: KeyUnlockBannerProps) {
     }
     fetchMyEncryptedKeyBlob()
       .then((data) => {
-        if (!data.has_keys || !data.encrypted_key_blob) {
+        if (!data.has_keys) {
           setBannerState("no_keys");
+        } else if (!data.encrypted_key_blob) {
+          setBannerState("blob_missing");
         } else {
           setBlob(data.encrypted_key_blob);
           setBannerState("locked");
@@ -45,6 +47,17 @@ export default function KeyUnlockBanner({ onUnlocked }: KeyUnlockBannerProps) {
           Keys
         </Link>
         {" — chưa có keypair"}
+      </p>
+    );
+  }
+
+  if (bannerState === "blob_missing") {
+    return (
+      <p className="text-sm text-rose-600 dark:text-rose-400">
+        <Link to="/keys" className="font-medium underline underline-offset-2">
+          Keys
+        </Link>
+        {" — thiếu blob passphrase trên server (không tạo keypair mới)"}
       </p>
     );
   }

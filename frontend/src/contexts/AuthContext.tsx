@@ -22,7 +22,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { authApi, changePasswordApi, setAccessToken } from "../utils/api";
+import { authApi, changePasswordApi, setAccessToken, updateProfileApi } from "../utils/api";
 import { clearAll as clearKeyVault } from "../utils/keyVault";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -42,6 +42,7 @@ interface AuthContextValue {
   register: (username: string, password: string, displayName?: string) => Promise<void>;
   logout: () => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  updateDisplayName: (displayName: string) => Promise<void>;
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -111,18 +112,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearKeyVault(); // xóa private key khỏi RAM + sessionStorage
   }, []);
 
+  const applyTokenResponse = useCallback((res: Awaited<ReturnType<typeof changePasswordApi>>) => {
+    setAccessToken(res.access_token);
+    setUser({
+      user_id: res.user_id,
+      email: res.email,
+      display_name: res.display_name,
+      role: res.role,
+    });
+  }, []);
+
   const changePassword = useCallback(
     async (currentPassword: string, newPassword: string) => {
       const res = await changePasswordApi(currentPassword, newPassword);
-      setAccessToken(res.access_token);
-      setUser({
-        user_id: res.user_id,
-        email: res.email,
-        display_name: res.display_name,
-        role: res.role,
-      });
+      applyTokenResponse(res);
     },
-    []
+    [applyTokenResponse]
+  );
+
+  const updateDisplayName = useCallback(
+    async (displayName: string) => {
+      const res = await updateProfileApi(displayName);
+      applyTokenResponse(res);
+    },
+    [applyTokenResponse]
   );
 
   const value = useMemo<AuthContextValue>(
@@ -134,8 +147,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       register,
       logout,
       changePassword,
+      updateDisplayName,
     }),
-    [user, isLoading, login, register, logout, changePassword]
+    [user, isLoading, login, register, logout, changePassword, updateDisplayName]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

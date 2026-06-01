@@ -33,6 +33,7 @@ export interface EncryptionMetadata {
   /** Envelope: bọc content key riêng cho từng người nhận (gửi nhiều người, một ciphertext) */
   envelopeMode?: boolean;
   contentKeyEnvelope?: string;
+  storage_mode?: "vault" | "share";
 }
 
 /** Metadata mở rộng cho chunked encryption */
@@ -43,6 +44,11 @@ export interface ChunkedEncryptionMetadata extends EncryptionMetadata {
   baseNonce: string;   // base64 — 8 bytes, dùng để sinh per-chunk nonce
   /** SHA-256 hex của từng plaintext chunk — được ký bởi Ed25519 manifest */
   chunkChecksums?: string[];
+  /**
+   * azure_blocks: multipart Azure nối ciphertext từng chunk (upload hiện tại).
+   * packed: [u32 count][u32 len][bytes]… (legacy / tương lai).
+   */
+  chunkBlobFormat?: "azure_blocks" | "packed";
 }
 
 export interface EncryptResult {
@@ -298,6 +304,80 @@ export async function encryptFileForRecipients(
   return { ciphertext, plaintextChecksum, perRecipientMetadata };
 }
 
+/** Mở envelope content key (vault owner) — không giải mã ciphertext. */
+export async function unwrapEnvelopeContentKey(
+  metadata: EncryptionMetadata,
+  recipientX25519PrivateKey: Uint8Array
+): Promise<{ contentSecret: Uint8Array; contentNonce: Uint8Array }> {
+  if (!metadata.envelopeMode || !metadata.contentKeyEnvelope) {
+    throw new Error("File không dùng envelope mode");
+  }
+  const ephemeralPublicKey = fromBase64(metadata.ephemeralPublicKey);
+  const sharedSecret = x25519.getSharedSecret(
+    recipientX25519PrivateKey,
+    ephemeralPublicKey
+  );
+  const { aesKey: wrapKey, nonce: wrapNonce } = await deriveKeyAndNonce(
+    sharedSecret,
+    ephemeralPublicKey,
+    ENVELOPE_WRAP_INFO
+  );
+  const storedWrapNonce = fromBase64(metadata.nonce);
+  if (!timingSafeEqual(wrapNonce, storedWrapNonce)) {
+    throw new Error("Nonce bọc khóa không khớp");
+  }
+  const unwrapped = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: toArrayBuffer(storedWrapNonce) },
+    wrapKey,
+    toArrayBuffer(fromBase64(metadata.contentKeyEnvelope))
+  );
+  const unwrappedBytes = new Uint8Array(unwrapped);
+  if (unwrappedBytes.length !== 44) {
+    throw new Error("Envelope khóa nội dung không hợp lệ");
+  }
+  return {
+    contentSecret: unwrappedBytes.slice(0, 32),
+    contentNonce: unwrappedBytes.slice(32, 44),
+  };
+}
+
+/** Bọc content key cho một recipient (chia sẻ từ kho, không upload lại blob). */
+export async function wrapEnvelopeForRecipient(
+  baseMeta: EncryptionMetadata,
+  contentSecret: Uint8Array,
+  contentNonce: Uint8Array,
+  recipientPublicKey: Uint8Array
+): Promise<EncryptionMetadata> {
+  const envelopePlain = new Uint8Array(44);
+  envelopePlain.set(contentSecret, 0);
+  envelopePlain.set(contentNonce, 32);
+
+  const ephemeral = generateX25519KeyPair();
+  const sharedSecret = x25519.getSharedSecret(ephemeral.privateKey, recipientPublicKey);
+  const { aesKey: wrapKey, nonce: wrapNonce } = await deriveKeyAndNonce(
+    sharedSecret,
+    ephemeral.publicKey,
+    ENVELOPE_WRAP_INFO
+  );
+  const wrapped = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: toArrayBuffer(wrapNonce) },
+    wrapKey,
+    toArrayBuffer(envelopePlain)
+  );
+  return {
+    ephemeralPublicKey: toBase64(ephemeral.publicKey),
+    nonce: toBase64(wrapNonce),
+    signature: baseMeta.signature,
+    signerPublicKey: baseMeta.signerPublicKey,
+    fileName: baseMeta.fileName,
+    fileSize: baseMeta.fileSize,
+    mimeType: baseMeta.mimeType,
+    plaintextChecksum: baseMeta.plaintextChecksum,
+    envelopeMode: true,
+    contentKeyEnvelope: toBase64(new Uint8Array(wrapped)),
+  };
+}
+
 // ─── Decryption (Download) ────────────────────────────────────────────────────
 
 /**
@@ -539,18 +619,39 @@ export function verifyManifest(
   }
 }
 
+/** Kích thước ciphertext AES-GCM = plaintext + 16 byte tag. */
+function encryptedChunkByteLength(
+  metadata: ChunkedEncryptionMetadata,
+  chunkIndex: number
+): number {
+  const plainLen =
+    chunkIndex < metadata.chunkCount - 1
+      ? metadata.chunkSize
+      : metadata.fileSize - (metadata.chunkCount - 1) * metadata.chunkSize;
+  return plainLen + 16;
+}
+
+function isPackedChunkBlob(
+  blob: Uint8Array,
+  metadata: ChunkedEncryptionMetadata
+): boolean {
+  if (metadata.chunkBlobFormat === "packed") return true;
+  if (metadata.chunkBlobFormat === "azure_blocks") return false;
+  if (blob.length < 8 || metadata.chunkCount <= 0) return false;
+  const dv = new DataView(blob.buffer, blob.byteOffset, blob.byteLength);
+  const headCount = dv.getUint32(0, false);
+  if (headCount !== metadata.chunkCount) return false;
+  const firstLen = dv.getUint32(4, false);
+  const expectedFirst = encryptedChunkByteLength(metadata, 0);
+  return firstLen === expectedFirst && 8 + firstLen <= blob.length;
+}
+
 /**
- * Giải mã file chunked từ packed blob đã tải về.
+ * Giải mã file chunked đã tải về.
  *
- * Định dạng packed blob (từ Azure):
- *   [4 bytes: chunkCount big-endian]
- *   foreach chunk: [4 bytes: chunkLen big-endian] + [chunkLen bytes: ciphertext]
- *
- * Quy trình:
- * 1. Xác thực manifest signature (Ed25519)
- * 2. Dẫn xuất AES key từ shared secret
- * 3. Parse packed blob → decrypt từng chunk
- * 4. Ghép các plaintext chunks lại
+ * Hỗ trợ hai layout blob:
+ * - azure_blocks: ciphertext các chunk nối liền (multipart Azure — upload hiện tại)
+ * - packed: [u32 count][u32 len][bytes]…
  */
 export async function decryptFileChunked(
   packedBlob: Uint8Array,
@@ -582,40 +683,68 @@ export async function decryptFileChunked(
   const aesKey = await deriveAesKeyOnly(sharedSecret, ephemeralPublicKey);
   const baseNonce = fromBase64(metadata.baseNonce);
 
-  // 3. Parse packed blob
-  const dv = new DataView(packedBlob.buffer, packedBlob.byteOffset);
-  const storedChunkCount = dv.getUint32(0, false);
-  if (storedChunkCount !== metadata.chunkCount) {
-    throw new Error("Số chunk không khớp metadata — dữ liệu bị sửa đổi!");
-  }
-
   const plaintextChunks: Uint8Array[] = [];
-  let offset = 4;
+  const packed = isPackedChunkBlob(packedBlob, metadata);
+  let offset = packed ? 4 : 0;
 
-  for (let i = 0; i < storedChunkCount; i++) {
-    if (offset + 4 > packedBlob.length) {
-      throw new Error(`Dữ liệu bị cắt ngắn tại chunk ${i}`);
+  if (packed) {
+    const dv = new DataView(packedBlob.buffer, packedBlob.byteOffset, packedBlob.byteLength);
+    const storedChunkCount = dv.getUint32(0, false);
+    if (storedChunkCount !== metadata.chunkCount) {
+      throw new Error("Số chunk không khớp metadata — dữ liệu bị sửa đổi!");
     }
-    const chunkLen = dv.getUint32(offset, false);
-    offset += 4;
-    const encryptedChunk = packedBlob.slice(offset, offset + chunkLen);
-    offset += chunkLen;
-
-    const plaintextChunk = await decryptChunk(aesKey, encryptedChunk, baseNonce, i);
-
-    // Verify per-chunk SHA-256 nếu manifest có chunkChecksums
-    if (metadata.chunkChecksums && metadata.chunkChecksums.length > i) {
-      const computed = await computeSHA256Hex(plaintextChunk);
-      if (computed !== metadata.chunkChecksums[i]) {
-        throw new Error(
-          `Chunk ${i}: SHA-256 không khớp — dữ liệu bị sửa đổi hoặc nhiễm mã độc!\n` +
-          `Mong đợi: ${metadata.chunkChecksums[i]}\nThực tế: ${computed}`
-        );
+    for (let i = 0; i < storedChunkCount; i++) {
+      if (offset + 4 > packedBlob.length) {
+        throw new Error(`Dữ liệu bị cắt ngắn tại chunk ${i}`);
       }
+      const chunkLen = dv.getUint32(offset, false);
+      offset += 4;
+      const encryptedChunk = packedBlob.slice(offset, offset + chunkLen);
+      offset += chunkLen;
+      const plaintextChunk = await decryptChunk(
+        aesKey,
+        encryptedChunk,
+        baseNonce,
+        i
+      );
+      if (metadata.chunkChecksums && metadata.chunkChecksums.length > i) {
+        const computed = await computeSHA256Hex(plaintextChunk);
+        if (computed !== metadata.chunkChecksums[i]) {
+          throw new Error(`Chunk ${i}: SHA-256 không khớp.`);
+        }
+      }
+      plaintextChunks.push(plaintextChunk);
+      onProgress?.(i + 1, storedChunkCount);
     }
-
-    plaintextChunks.push(plaintextChunk);
-    onProgress?.(i + 1, storedChunkCount);
+  } else {
+    let expectedTotal = 0;
+    for (let i = 0; i < metadata.chunkCount; i++) {
+      expectedTotal += encryptedChunkByteLength(metadata, i);
+    }
+    if (packedBlob.length !== expectedTotal) {
+      throw new Error(
+        `Kích thước blob (${packedBlob.length}) không khớp ${metadata.chunkCount} chunk (${expectedTotal}).`
+      );
+    }
+    for (let i = 0; i < metadata.chunkCount; i++) {
+      const chunkLen = encryptedChunkByteLength(metadata, i);
+      const encryptedChunk = packedBlob.slice(offset, offset + chunkLen);
+      offset += chunkLen;
+      const plaintextChunk = await decryptChunk(
+        aesKey,
+        encryptedChunk,
+        baseNonce,
+        i
+      );
+      if (metadata.chunkChecksums && metadata.chunkChecksums.length > i) {
+        const computed = await computeSHA256Hex(plaintextChunk);
+        if (computed !== metadata.chunkChecksums[i]) {
+          throw new Error(`Chunk ${i}: SHA-256 không khớp.`);
+        }
+      }
+      plaintextChunks.push(plaintextChunk);
+      onProgress?.(i + 1, metadata.chunkCount);
+    }
   }
 
   // 4. Reassemble plaintext

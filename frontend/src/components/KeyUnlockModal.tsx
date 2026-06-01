@@ -13,6 +13,7 @@ interface KeyUnlockModalProps {
 type ModalState =
   | { phase: "loading" }
   | { phase: "no_keys" }
+  | { phase: "blob_missing" }
   | { phase: "unlock"; blob: string }
   | { phase: "error"; message: string };
 
@@ -25,8 +26,10 @@ export default function KeyUnlockModal({ onUnlocked, onDismiss }: KeyUnlockModal
   const load = useCallback(async () => {
     try {
       const data = await fetchMyEncryptedKeyBlob();
-      if (!data.has_keys || !data.encrypted_key_blob) {
+      if (!data.has_keys) {
         setModalState({ phase: "no_keys" });
+      } else if (!data.encrypted_key_blob) {
+        setModalState({ phase: "blob_missing" });
       } else {
         setModalState({ phase: "unlock", blob: data.encrypted_key_blob });
       }
@@ -74,6 +77,22 @@ export default function KeyUnlockModal({ onUnlocked, onDismiss }: KeyUnlockModal
             <p className={`text-sm ${text.secondary}`}>Chưa có keypair.</p>
             <Link to="/keys" className={`block w-full text-center py-2.5 rounded-lg text-sm font-semibold ${btn.primary}`}>
               Keys
+            </Link>
+            {onDismiss && (
+              <button type="button" onClick={onDismiss} className={`w-full text-sm ${btnGhost}`}>
+                Bỏ qua
+              </button>
+            )}
+          </div>
+        )}
+
+        {modalState.phase === "blob_missing" && (
+          <div className="space-y-4">
+            <p className="text-sm text-rose-600 dark:text-rose-400">
+              Public key trên server nhưng thiếu blob passphrase (có thể do đồng bộ cũ). Không tạo keypair mới.
+            </p>
+            <Link to="/keys" className={`block w-full text-center py-2.5 rounded-lg text-sm font-semibold ${btn.primary}`}>
+              Keys — Migrate
             </Link>
             {onDismiss && (
               <button type="button" onClick={onDismiss} className={`w-full text-sm ${btnGhost}`}>

@@ -45,12 +45,12 @@ const TAB_CONFIG: { id: Tab; label: string }[] = [
   { id: "inbox", label: "Hộp nhận" },
 ];
 
-export default function HistoryPage() {
+export function HistoryPanel({ embedded = false }: { embedded?: boolean }) {
   const [tab, setTab] = useState<Tab>("upload");
 
   return (
-    <div className="max-w-4xl mx-auto space-y-5">
-      <PageHeader title="Lịch sử" />
+    <div className={embedded ? "space-y-5" : "max-w-4xl mx-auto space-y-5"}>
+      {!embedded && <PageHeader title="Lịch sử" />}
 
       <div className={tabs.wrap}>
         {TAB_CONFIG.map((t) => (
@@ -70,6 +70,10 @@ export default function HistoryPage() {
       {tab === "inbox"    && <InboxHistory />}
     </div>
   );
+}
+
+export default function HistoryPage() {
+  return <HistoryPanel />;
 }
 
 /* ─────────────────────────────── Upload History ─────────────────────────── */

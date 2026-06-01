@@ -152,6 +152,11 @@ export async function setKeys(keys: UnlockedKeyPairs): Promise<void> {
   _keys = keys;
   await _writeSessionWrapper(keys);
   resetLockTimer();
+  try {
+    window.dispatchEvent(new Event("ls-vault-unlocked"));
+  } catch {
+    /* non-browser */
+  }
 }
 
 /**
