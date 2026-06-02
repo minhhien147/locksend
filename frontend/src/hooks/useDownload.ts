@@ -36,7 +36,10 @@ interface UseDownloadState {
 }
 
 export interface UseDownloadReturn extends UseDownloadState {
-  downloadAndDecrypt: (sasUrl: string) => Promise<void>;
+  downloadAndDecrypt: (
+    sasUrl: string,
+    fallbackMetadata?: Record<string, unknown>
+  ) => Promise<void>;
   downloadVaultFile: (
     fileId: string,
     encryptionMetadata: Record<string, unknown>
@@ -157,7 +160,10 @@ export function useDownload(): UseDownloadReturn {
     }
   }
 
-  async function downloadAndDecrypt(sasUrl: string): Promise<void> {
+  async function downloadAndDecrypt(
+    sasUrl: string,
+    fallbackMetadata?: Record<string, unknown>
+  ): Promise<void> {
     if (!sasUrl.trim()) {
       setState((prev) => ({
         ...prev,
@@ -166,7 +172,7 @@ export function useDownload(): UseDownloadReturn {
       return;
     }
     await runDecryptPipeline(
-      () => downloadCiphertext(sasUrl.trim()),
+      () => downloadCiphertext(sasUrl.trim(), fallbackMetadata),
       sasUrl.trim()
     );
   }

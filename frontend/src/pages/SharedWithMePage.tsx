@@ -55,7 +55,13 @@ function SharedFileCard({ item }: { item: SharedFileItem }) {
     setFetchingUrl(true);
     try {
       const sas = await getSharedFileSas(item.file_id);
-      await downloadAndDecrypt(sas.sas_url);
+      let recipientMetadata: Record<string, unknown> | undefined;
+      try {
+        recipientMetadata = JSON.parse(item.wrapped_file_key) as Record<string, unknown>;
+      } catch {
+        recipientMetadata = undefined;
+      }
+      await downloadAndDecrypt(sas.sas_url, recipientMetadata);
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Không lấy được link tải";
       setUrlError(msg);

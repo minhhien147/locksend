@@ -422,7 +422,7 @@ function _parseEncryptionMetadataFromHeaders(
   return JSON.parse(metadataJson) as EncryptionMetadata;
 }
 
-/** Tải ciphertext từ SAS URL (trực tiếp từ Azure) */
+/** Tải ciphertext từ SAS URL qua backend proxy (tránh CORS Azure). */
 export async function downloadCiphertext(
   sasUrl: string,
   fallbackMetadata?: Record<string, unknown>
@@ -431,12 +431,18 @@ export async function downloadCiphertext(
   metadata: EncryptionMetadata;
   serverFileId?: string;
 }> {
-  const response = await axios.get(sasUrl, { responseType: "arraybuffer" });
+  const response = await api.post(
+    "/files/ciphertext/by-sas",
+    { sas_url: sasUrl },
+    { responseType: "arraybuffer" }
+  );
   const headers = response.headers as Record<string, unknown>;
-  const metadata = _parseEncryptionMetadataFromHeaders(headers, fallbackMetadata);
+  const metadata =
+    fallbackMetadata && Object.keys(fallbackMetadata).length > 0
+      ? (fallbackMetadata as unknown as EncryptionMetadata)
+      : _parseEncryptionMetadataFromHeaders(headers, fallbackMetadata);
   const ciphertext = new Uint8Array(response.data);
-  const serverFileId =
-    _headerCi(headers, "x-file-id") ?? _headerCi(headers, "x-ms-meta-file_id");
+  const serverFileId = _headerCi(headers, "x-file-id");
   return { ciphertext, metadata, serverFileId };
 }
 
