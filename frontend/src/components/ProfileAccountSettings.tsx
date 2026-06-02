@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { useDraftState } from "../hooks/useDraftState";
+
+const PROFILE_SETTINGS_KEY = "profile-settings";
 import {
   fetchMyDisplayNameHistory,
   type DisplayNameHistoryItem,
@@ -26,14 +29,28 @@ function apiErrorDetail(err: unknown): string {
 export default function ProfileAccountSettings() {
   const { user, updateDisplayName, changePassword } = useAuth();
 
-  const [displayName, setDisplayName] = useState(user?.display_name ?? "");
+  const [displayName, setDisplayName] = useDraftState(
+    PROFILE_SETTINGS_KEY,
+    "displayName",
+    user?.display_name ?? ""
+  );
   const [nameStatus, setNameStatus] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
   const [nameBusy, setNameBusy] = useState(false);
 
-  const [currentPwd, setCurrentPwd] = useState("");
-  const [newPwd, setNewPwd] = useState("");
-  const [confirmPwd, setConfirmPwd] = useState("");
+  const [currentPwd, setCurrentPwd] = useDraftState(
+    PROFILE_SETTINGS_KEY,
+    "currentPwd",
+    "",
+    "memory"
+  );
+  const [newPwd, setNewPwd] = useDraftState(PROFILE_SETTINGS_KEY, "newPwd", "", "memory");
+  const [confirmPwd, setConfirmPwd] = useDraftState(
+    PROFILE_SETTINGS_KEY,
+    "confirmPwd",
+    "",
+    "memory"
+  );
   const [pwdStatus, setPwdStatus] = useState<string | null>(null);
   const [pwdError, setPwdError] = useState<string | null>(null);
   const [pwdBusy, setPwdBusy] = useState(false);
@@ -53,8 +70,10 @@ export default function ProfileAccountSettings() {
   }, []);
 
   useEffect(() => {
-    setDisplayName(user?.display_name ?? "");
-  }, [user?.display_name]);
+    if (user?.display_name && displayName === "") {
+      setDisplayName(user.display_name);
+    }
+  }, [user?.display_name, displayName, setDisplayName]);
 
   useEffect(() => {
     void loadNameHistory();

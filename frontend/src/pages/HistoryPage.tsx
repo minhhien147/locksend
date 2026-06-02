@@ -20,7 +20,10 @@ import {
 } from "../utils/downloadHistory";
 import PageLoader, { LoadingSpinner } from "../components/LoadingSpinner";
 import PageHeader from "../components/ui/PageHeader";
+import { useDraftState } from "../hooks/useDraftState";
 import { tabs } from "../styles/theme";
+
+const HISTORY_PAGE_KEY = "history";
 
 type Tab = "upload" | "download" | "inbox";
 
@@ -46,7 +49,7 @@ const TAB_CONFIG: { id: Tab; label: string }[] = [
 ];
 
 export function HistoryPanel({ embedded = false }: { embedded?: boolean }) {
-  const [tab, setTab] = useState<Tab>("upload");
+  const [tab, setTab] = useDraftState<Tab>(HISTORY_PAGE_KEY, "tab", "upload");
 
   return (
     <div className={embedded ? "space-y-5" : "max-w-4xl mx-auto space-y-5"}>
@@ -497,7 +500,11 @@ function RecipientsSection({
 function DownloadHistory() {
   const [items, setItems] = useState<DownloadHistoryItem[]>(() => getDownloadHistory());
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useDraftState<string | null>(
+    HISTORY_PAGE_KEY,
+    "downloadExpandedId",
+    null
+  );
 
   async function handleCopy(text: string, key: string) {
     await navigator.clipboard.writeText(text);

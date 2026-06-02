@@ -10,6 +10,7 @@
  */
 
 import { useState, useEffect, useRef } from "react";
+import { useDraftState } from "../hooks/useDraftState";
 import {
   generateX25519KeyPair,
   generateEd25519KeyPair,
@@ -56,22 +57,59 @@ type PageState =
 
 type DangerStep = null | "replace-keys" | "delete-keys";
 
+const KEYS_PAGE_KEY = "keys";
+
 export default function KeyManagement() {
   const [pageState, setPageState] = useState<PageState>({ phase: "loading" });
-  const [dangerStep, setDangerStep] = useState<DangerStep>(null);
+  const [dangerStep, setDangerStep] = useDraftState<DangerStep>(
+    KEYS_PAGE_KEY,
+    "dangerStep",
+    null,
+    "persist"
+  );
   const [status, setStatus] = useState<{ msg: string; isError: boolean } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // Form fields
-  const [newPassphrase, setNewPassphrase] = useState("");
-  const [confirmPassphrase, setConfirmPassphrase] = useState("");
-  const [unlockPassphrase, setUnlockPassphrase] = useState("");
-  const [currentChangePassphrase, setCurrentChangePassphrase] = useState("");
-  const [changePassphraseVal, setChangePassphraseVal] = useState("");
-  const [changePhraseConfirm, setChangePhraseConfirm] = useState("");
-  const [legacyPassphrase, setLegacyPassphrase] = useState("");
+  // Form fields — chỉ RAM (không ghi passphrase ra sessionStorage)
+  const [newPassphrase, setNewPassphrase] = useDraftState(KEYS_PAGE_KEY, "newPassphrase", "", "memory");
+  const [confirmPassphrase, setConfirmPassphrase] = useDraftState(
+    KEYS_PAGE_KEY,
+    "confirmPassphrase",
+    "",
+    "memory"
+  );
+  const [unlockPassphrase, setUnlockPassphrase] = useDraftState(
+    KEYS_PAGE_KEY,
+    "unlockPassphrase",
+    "",
+    "memory"
+  );
+  const [currentChangePassphrase, setCurrentChangePassphrase] = useDraftState(
+    KEYS_PAGE_KEY,
+    "currentChangePassphrase",
+    "",
+    "memory"
+  );
+  const [changePassphraseVal, setChangePassphraseVal] = useDraftState(
+    KEYS_PAGE_KEY,
+    "changePassphraseVal",
+    "",
+    "memory"
+  );
+  const [changePhraseConfirm, setChangePhraseConfirm] = useDraftState(
+    KEYS_PAGE_KEY,
+    "changePhraseConfirm",
+    "",
+    "memory"
+  );
+  const [legacyPassphrase, setLegacyPassphrase] = useDraftState(
+    KEYS_PAGE_KEY,
+    "legacyPassphrase",
+    "",
+    "memory"
+  );
 
   const statusTimerRef = useRef<number | null>(null);
 

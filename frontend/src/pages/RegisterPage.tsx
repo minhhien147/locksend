@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { useClearPageDraft, useDraftState } from "../hooks/useDraftState";
+import { clearPageDraft } from "../utils/pageDraft";
+
+const REGISTER_PAGE_KEY = "auth-register";
+const LOGIN_PAGE_KEY = "auth-login";
 import { LockSendLogoHero, LockSendMark } from "../components/LockSendLogo";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import ThemeToggle from "../components/ThemeToggle";
@@ -14,11 +19,17 @@ export default function RegisterPage() {
   const { register, isLoading } = useAuth();
   const navigate = useNavigate();
 
-  const [displayName, setDisplayName] = useState("");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const clearRegisterDraft = useClearPageDraft(REGISTER_PAGE_KEY);
+  const [displayName, setDisplayName] = useDraftState(REGISTER_PAGE_KEY, "displayName", "");
+  const [username, setUsername] = useDraftState(REGISTER_PAGE_KEY, "username", "");
+  const [password, setPassword] = useDraftState(REGISTER_PAGE_KEY, "password", "", "memory");
+  const [confirmPassword, setConfirmPassword] = useDraftState(
+    REGISTER_PAGE_KEY,
+    "confirmPassword",
+    "",
+    "memory"
+  );
+  const [showPassword, setShowPassword] = useDraftState(REGISTER_PAGE_KEY, "showPassword", false);
   const [error, setError] = useState<string | null>(null);
 
   const passwordStrength = (p: string): { label: string; color: string; width: string } => {
@@ -48,6 +59,8 @@ export default function RegisterPage() {
 
     try {
       await register(username, password, displayName || undefined);
+      clearRegisterDraft();
+      clearPageDraft(LOGIN_PAGE_KEY);
       navigate("/", { replace: true });
     } catch (err: unknown) {
       const msg =

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "../utils/api";
+import { useDraftState } from "../hooks/useDraftState";
+
+const ADMIN_TOKEN_PAGE_KEY = "admin-token-security";
 import PageLoader, { LoadingSpinner } from "../components/LoadingSpinner";
 
 import { admin, surfaceCard } from "../styles/theme";
@@ -124,7 +127,11 @@ type Tab = "overview" | "tokens" | "ai-report";
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function AdminTokenSecurityPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [activeTab, setActiveTab] = useDraftState<Tab>(
+    ADMIN_TOKEN_PAGE_KEY,
+    "activeTab",
+    "overview"
+  );
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [aiHealth, setAiHealth] = useState<AiHealth | null>(null);
@@ -132,7 +139,11 @@ export default function AdminTokenSecurityPage() {
 
   const [tokens, setTokens] = useState<TokenMetric[]>([]);
   const [tokensLoading, setTokensLoading] = useState(false);
-  const [tokenType, setTokenType] = useState<"all" | "jwt" | "sas">("all");
+  const [tokenType, setTokenType] = useDraftState<"all" | "jwt" | "sas">(
+    ADMIN_TOKEN_PAGE_KEY,
+    "tokenType",
+    "all"
+  );
 
   const [aiResults, setAiResults] = useState<AiTokenResult[]>([]);
   const [aiRuleMetrics, setAiRuleMetrics] = useState<TokenMetric[]>([]);

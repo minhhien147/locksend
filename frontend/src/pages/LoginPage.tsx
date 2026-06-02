@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { useClearPageDraft, useDraftState } from "../hooks/useDraftState";
+import { clearPageDraft } from "../utils/pageDraft";
+
+const LOGIN_PAGE_KEY = "auth-login";
 import { LockSendLogoHero, LockSendMark } from "../components/LockSendLogo";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import ThemeToggle from "../components/ThemeToggle";
@@ -16,9 +20,10 @@ export default function LoginPage() {
   const location = useLocation();
   const from = (location.state as { from?: string })?.from || "/";
 
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const clearLoginDraft = useClearPageDraft(LOGIN_PAGE_KEY);
+  const [username, setUsername] = useDraftState(LOGIN_PAGE_KEY, "username", "");
+  const [password, setPassword] = useDraftState(LOGIN_PAGE_KEY, "password", "", "memory");
+  const [showPassword, setShowPassword] = useDraftState(LOGIN_PAGE_KEY, "showPassword", false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -26,6 +31,8 @@ export default function LoginPage() {
     setError(null);
     try {
       await login(username, password);
+      clearLoginDraft();
+      clearPageDraft("auth-register");
       navigate(from, { replace: true });
     } catch (err: unknown) {
       const msg =

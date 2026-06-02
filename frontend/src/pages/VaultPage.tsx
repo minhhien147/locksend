@@ -12,6 +12,7 @@ import {
 } from "../utils/api";
 import { useUpload } from "../hooks/useUpload";
 import { useDownload } from "../hooks/useDownload";
+import { useDraftState } from "../hooks/useDraftState";
 import VaultShareDialog from "../components/VaultShareDialog";
 import KeyUnlockBanner from "../components/KeyUnlockBanner";
 import PageHeader from "../components/ui/PageHeader";
@@ -158,18 +159,29 @@ function VaultFileRow({
   );
 }
 
+const VAULT_PAGE_KEY = "vault";
+
 export function VaultPanel({ embedded = false }: { embedded?: boolean }) {
   const [keysReady, setKeysReady] = useState(() => isUnlocked());
   const [quota, setQuota] = useState<VaultQuota | null>(null);
   const [folders, setFolders] = useState<VaultFolder[]>([]);
   const [files, setFiles] = useState<VaultFile[]>([]);
-  const [folderId, setFolderId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [folderId, setFolderId] = useDraftState<string | null>(VAULT_PAGE_KEY, "folderId", null);
+  const [search, setSearch] = useDraftState(VAULT_PAGE_KEY, "search", "");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [newFolderName, setNewFolderName] = useState("");
-  const [shareFile, setShareFile] = useState<VaultFile | null>(null);
-  const [uploadQueue, setUploadQueue] = useState<File[]>([]);
+  const [newFolderName, setNewFolderName] = useDraftState(VAULT_PAGE_KEY, "newFolderName", "");
+  const [shareFileId, setShareFileId] = useDraftState<string | null>(
+    VAULT_PAGE_KEY,
+    "shareFileId",
+    null
+  );
+  const [uploadQueue, setUploadQueue] = useDraftState<File[]>(
+    VAULT_PAGE_KEY,
+    "uploadQueue",
+    [],
+    "memory"
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -235,6 +247,10 @@ export function VaultPanel({ embedded = false }: { embedded?: boolean }) {
     quota && quota.quota_bytes > 0
       ? Math.min(100, Math.round((quota.used_bytes / quota.quota_bytes) * 100))
       : 0;
+
+  const shareFile = shareFileId
+    ? files.find((f) => f.file_id === shareFileId) ?? null
+    : null;
 
   return (
     <div className={embedded ? "space-y-5" : "max-w-5xl mx-auto space-y-5"}>
@@ -390,7 +406,7 @@ export function VaultPanel({ embedded = false }: { embedded?: boolean }) {
                   key={f.file_id}
                   file={f}
                   onRefresh={() => void loadAll()}
-                  onShare={setShareFile}
+                  onShare={(f) => setShareFileId(f.file_id)}
                 />
               ))}
             </div>
@@ -401,7 +417,7 @@ export function VaultPanel({ embedded = false }: { embedded?: boolean }) {
       {shareFile && (
         <VaultShareDialog
           file={shareFile}
-          onClose={() => setShareFile(null)}
+          onClose={() => setShareFileId(null)}
           onShared={() => void loadAll()}
         />
       )}

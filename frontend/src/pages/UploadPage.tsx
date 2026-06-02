@@ -11,6 +11,8 @@ import {
   type RecipientUser,
   type UploadPurpose,
 } from "../hooks/useUpload";
+import { useClearPageDraft, useDraftState } from "../hooks/useDraftState";
+import { migrateLegacyStorage } from "../utils/pageDraft";
 import { getVaultFolders, type VaultFolder } from "../utils/api";
 import { Link } from "react-router-dom";
 import { LoadingSpinner } from "../components/LoadingSpinner";
@@ -41,22 +43,50 @@ const formatFileSize = (bytes: number): string => {
 };
 
 const CHUNK_MB = DEFAULT_CHUNK_SIZE / (1024 * 1024);
-
+const PAGE_KEY = "upload";
 type RecipientMode = "search" | "manual";
 
 export default function UploadPage() {
+  const clearUploadDraft = useClearPageDraft(PAGE_KEY);
   const [keysReady, setKeysReady] = useState(() => isUnlocked());
   const canUseKeys = keysReady;
-  const [file, setFile] = useState<File | null>(null);
-  const [recipientPublicKey, setRecipientPublicKey] = useState("");
-  const [uploadPurpose, setUploadPurpose] = useState<UploadPurpose>("share");
-  const [vaultFolderId, setVaultFolderId] = useState<string | null>(null);
+  const [file, setFile] = useDraftState<File | null>(PAGE_KEY, "file", null, "memory");
+  const [fileHint, setFileHint] = useDraftState<{ name: string; size: number } | null>(
+    PAGE_KEY,
+    "fileHint",
+    null,
+    "persist"
+  );
+  const fileNeedsReselect = !file && !!fileHint;
+  const [recipientPublicKey, setRecipientPublicKey] = useDraftState(
+    PAGE_KEY,
+    "recipientPublicKey",
+    ""
+  );
+  const [uploadPurpose, setUploadPurpose] = useDraftState<UploadPurpose>(
+    PAGE_KEY,
+    "uploadPurpose",
+    "share"
+  );
+  const [vaultFolderId, setVaultFolderId] = useDraftState<string | null>(
+    PAGE_KEY,
+    "vaultFolderId",
+    null
+  );
+  const [recipientMode, setRecipientMode] = useDraftState<RecipientMode>(
+    PAGE_KEY,
+    "recipientMode",
+    "search"
+  );
+  const [searchQuery, setSearchQuery] = useDraftState(PAGE_KEY, "searchQuery", "");
+  const [selectedRecipients, setSelectedRecipients] = useDraftState<RecipientUser[]>(
+    PAGE_KEY,
+    "selectedRecipients",
+    []
+  );
   const [vaultFolders, setVaultFolders] = useState<VaultFolder[]>([]);
-  const [recipientMode, setRecipientMode] = useState<RecipientMode>("search");
-  const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [selectedRecipients, setSelectedRecipients] = useState<RecipientUser[]>([]);
   const [keyLoading, setKeyLoading] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -79,6 +109,14 @@ export default function UploadPage() {
     setKeysReady(isUnlocked());
     void syncPublicKeysToServer();
   };
+
+  useEffect(() => {
+    migrateLegacyStorage("sfs_upload_draft_v1", PAGE_KEY);
+  }, []);
+
+  useEffect(() => {
+    setFileHint(file ? { name: file.name, size: file.size } : null);
+  }, [file, setFileHint]);
 
   useEffect(() => {
     if (uploadPurpose === "vault") {
@@ -158,10 +196,9 @@ export default function UploadPage() {
   }
 
   function handleReset() {
-    setFile(null);
+    clearUploadDraft();
     setCopied(false);
     reset();
-    handleClearRecipients();
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -201,6 +238,13 @@ export default function UploadPage() {
       <PageHeader title="Upload" />
 
       <KeyUnlockBanner onUnlocked={onKeysUnlocked} />
+
+      {fileNeedsReselect && !file && (
+        <Alert tone="warning">
+          Bạn đã chọn file trước đó — sau khi tải lại trang hoặc đổi tab lâu, hãy chọn lại file.
+          Danh sách người nhận và cài đặt khác vẫn được giữ.
+        </Alert>
+      )}
 
       <Card className="space-y-3">
         <h2 className={sectionTitle}>Chế độ</h2>

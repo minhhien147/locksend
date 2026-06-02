@@ -16,6 +16,9 @@
  */
 
 import { useState, useRef, useCallback } from "react";
+import { useDraftState } from "../hooks/useDraftState";
+
+const STRESS_PAGE_KEY = "admin-stress";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -332,8 +335,12 @@ export default function StressTestPage() {
   const [isRunning, setIsRunning] = useState(false);
   const [currentTest, setCurrentTest] = useState("");
   const [chunkProgress, setChunkProgress] = useState<{ done: number; total: number } | null>(null);
-  const [includedSizesMB, setIncludedSizesMB] = useState<number[]>(DEFAULT_SIZES_MB);
-  const [showExtended, setShowExtended] = useState(false);
+  const [includedSizesMB, setIncludedSizesMB] = useDraftState<number[]>(
+    STRESS_PAGE_KEY,
+    "includedSizesMB",
+    DEFAULT_SIZES_MB
+  );
+  const [showExtended, setShowExtended] = useDraftState(STRESS_PAGE_KEY, "showExtended", false);
   const [summary, setSummary] = useState<{
     maxSafeShot: number | null;
     maxSafeChunked: number | null;

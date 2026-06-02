@@ -1,4 +1,8 @@
 import { useState, useEffect, useRef } from "react";
+import { useDraftState } from "../hooks/useDraftState";
+import { clearPageDraft } from "../utils/pageDraft";
+
+const VAULT_SHARE_KEY = "vault-share";
 import {
   searchUsers,
   getUserPublicKey,
@@ -23,14 +27,24 @@ interface Props {
   onShared: () => void;
 }
 
+type ShareRecipient = {
+  userId: string;
+  label: string;
+  publicKeyX25519: string;
+  keyVersion: number;
+};
+
 export default function VaultShareDialog({ file, onClose, onShared }: Props) {
-  const [query, setQuery] = useState("");
+  const draftScope = `${VAULT_SHARE_KEY}:${file.file_id}`;
+  const [query, setQuery] = useDraftState(draftScope, "query", "");
   const [results, setResults] = useState<
     { id: string; email: string | null; display_name: string | null }[]
   >([]);
-  const [selected, setSelected] = useState<
-    { userId: string; label: string; publicKeyX25519: string; keyVersion: number }[]
-  >([]);
+  const [selected, setSelected] = useDraftState<ShareRecipient[]>(
+    draftScope,
+    "selected",
+    []
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
@@ -119,6 +133,7 @@ export default function VaultShareDialog({ file, onClose, onShared }: Props) {
         });
       }
       await shareVaultFile(file.file_id, payloads);
+      clearPageDraft(draftScope);
       onShared();
       onClose();
     } catch (e) {
