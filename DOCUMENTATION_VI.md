@@ -36,15 +36,18 @@ secure-file-sharing/
 ├── frontend/
 │   ├── src/
 │   │   ├── App.tsx          # routes, role-based nav (Upload ẩn với recipient)
-│   │   ├── contexts/AuthContext.tsx
-│   │   ├── components/ProtectedRoute.tsx
-│   │   ├── pages/*.tsx       # Login, Register, Upload, Download, Keys, Admin, Stress
+│   │   ├── contexts/        # AuthContext, ThemeContext
+│   │   ├── hooks/           # useUpload, useDownload, useDraftState, useKeySync
+│   │   ├── components/      # ProtectedRoute, KeyUnlockModal, VaultShareDialog, …
+│   │   ├── pages/           # Login, Register, Upload, Download, Keys, Profile, Admin, Stress
 │   │   └── utils/
-│   │       ├── crypto.ts     # client crypto (chunked + single-shot)
+│   │       ├── crypto.ts    # client crypto (chunked + single-shot + key blob)
+│   │       ├── keyVault.ts  # RAM + sessionStorage wrapper (zero-knowledge)
+│   │       ├── pageDraft.ts # draft form khi đổi trang (sessionStorage + RAM)
 │   │       └── api.ts       # axios, silent refresh, upload helpers
-│   ├── vite.config.ts       # proxy /api → localhost:8080
+│   ├── vite.config.ts       # proxy /api → localhost:8000
 │   └── .env.example         # VITE_API_URL
-├── setup-azure.ps1          # script phụ Azure (nếu có trong repo)
+├── locksend-ai/             # ML token security (tùy chọn)
 ├── README.md
 └── DOCUMENTATION_VI.md       # file này
 ```
@@ -53,16 +56,55 @@ secure-file-sharing/
 
 ## 3. Stack kỹ thuật
 
+Nguồn phiên bản: `frontend/package.json`, `backend/requirements.txt`.
+
+### 3.1 Frontend
+
+| Công nghệ | Phiên bản (repo) | Ghi chú |
+|-----------|------------------|---------|
+| React / React DOM | 19.2.x | SPA chính |
+| React Router | 7.x | Protected routes, profile tabs |
+| Vite | 8.0.x | Build; production: `serve dist` (Railway) hoặc static (Vercel) |
+| TypeScript | ~5.9 | |
+| Tailwind CSS | 4.2.x | Plugin `@tailwindcss/vite` |
+| @noble/curves | **2.x** | X25519, Ed25519 trong browser |
+| Web Crypto API | built-in | AES-256-GCM, HKDF-SHA256, SHA-256, PBKDF2 (bọc keypair) |
+| Axios | 1.13.x | API client |
+| Node.js | ≥ 20.19 | `engines` trong `package.json`; Nixpacks/Railway dùng Node 20 |
+
+### 3.2 Backend
+
+| Công nghệ | Phiên bản (repo) | Ghi chú |
+|-----------|------------------|---------|
+| Python | 3.11+ (dev: 3.13) | Không pin trong repo; dùng venv tương thích FastAPI stack |
+| FastAPI | 0.135.x | |
+| Uvicorn | 0.42.x | |
+| Pydantic | 2.12.x | |
+| SQLAlchemy | 2.0.x + asyncpg 0.30.x | Async PostgreSQL |
+| Alembic | 1.15.x | Migrations |
+| PyJWT | 2.12.x | **Không dùng python-jose**. Mặc định `JWT_ALGORITHM=HS256`; RS256/ES256 nếu set `JWT_PUBLIC_KEY` |
+| Passlib + bcrypt | 1.7.x / 4.2.x | Mật khẩu đăng nhập |
+
+### 3.3 Azure, DB, crypto
+
 | Lớp | Công nghệ |
 |-----|-----------|
-| Frontend | React 18, React Router 7, Vite, TypeScript, Tailwind v4 (`@tailwindcss/vite`), Axios, `@noble/curves` |
-| Backend | FastAPI, Uvicorn, Pydantic v2, SQLAlchemy 2 async, Alembic, asyncpg |
-| Crypto (client) | X25519, HKDF-SHA256, AES-256-GCM, Ed25519, SHA-256 |
-| Identity / auth | PyJWT (HS256 mặc định hoặc RS256/ES256 qua PEM), Passlib bcrypt |
-| Azure | `azure-storage-blob`, `azure-keyvault-secrets`, `azure-identity` (**DefaultAzureCredential** / Managed Identity) |
-| DB | PostgreSQL 14+ (JSONB, enum `recipient_status`) |
+| Azure | `azure-storage-blob`, `azure-keyvault-secrets`, `azure-keyvault-keys`, `azure-identity` — **DefaultAzureCredential** / Managed Identity |
+| DB | PostgreSQL **14+** (JSONB, enum `recipient_status`) — không khóa version 15 trong repo |
+| Crypto (file) | X25519 (RFC 7748), HKDF-SHA256 (RFC 5869), AES-256-GCM, Ed25519 (RFC 8032), SHA-256 checksum |
+| Crypto (keypair) | PBKDF2-SHA256 (310 000 iter) + AES-256-GCM — passphrase chỉ trên client |
 
-Phiên bản cụ thể: xem `backend/requirements.txt` và `frontend/package.json`.
+### 3.4 LockSend AI (tùy chọn)
+
+| Công nghệ | Mục đích |
+|-----------|----------|
+| `locksend-ai/` + `backend/requirements-ai.txt` | Random Forest + SHAP; Admin Token Security — xem [locksend-ai/README.md](./locksend-ai/README.md) |
+
+### 3.5 Triển khai (tham khảo)
+
+- **Frontend**: Vercel (`vercel.json`) hoặc Railway (`nixpacks.toml`, `railway.json`) — bắt buộc `VITE_API_URL`.
+- **Backend**: Railway / Azure App Service / máy chủ tùy env — không có Docker Compose trong monorepo.
+- **Công cụ kiểm thử ngoài repo** (OWASP ZAP, Burp, Locust, Postman, …): dùng trong báo cáo/QA, không phải dependency runtime.
 
 ---
 
@@ -98,7 +140,13 @@ Phiên bản cụ thể: xem `backend/requirements.txt` và `frontend/package.js
 ## 5. Lưu trữ khóa trên người dùng cuối
 
 - **JWT access token**: chỉ trong **bộ nhớ JS** (`api.ts` `_accessToken`) — không `localStorage`.
-- **Cryptographic identity** (private X25519/Ed25519): `KeyManagement` / `crypto.ts` helpers — trong triển khai hiện tại keys client thường qua **`localStorage`** (`loadKeysFromStorage` trong `crypto.ts`; cần xem chi tiết file khi harden).
+- **Private key plaintext**: chỉ **RAM** (`keyVault.ts`); không lưu plaintext vào `localStorage` / cookie.
+- **sessionStorage**: wrapper AES ephemeral (per-tab) — hỗ trợ F5 không nhập lại passphrase; đóng tab / logout / idle 15 phút → xóa.
+- **PostgreSQL**: `public_key_x25519`, `public_key_ed25519`, `encrypted_key_blob` (PBKDF2 + AES-GCM từ passphrase client) — server **không** biết passphrase hay private key.
+- **localStorage**: chỉ dùng cho **migrate** key cũ một lần (`decryptLegacyLocalStorage`); sau migrate nên xóa.
+- **Draft form** (`useDraftState` / `pageDraft.ts`): ô nhập trên Upload, Download, Keys, Profile, Admin… — RAM khi đổi trang; JSON-safe fields còn sau F5 trong `sessionStorage` (không lưu passphrase).
+
+Chi tiết luồng: mục “Quản lý private key” trong `README.md`.
 
 **Key Vault naming (secret names)**:
 
@@ -192,15 +240,19 @@ SAS được tạo bằng **user delegation key** (`_generate_sas` trong `main.p
 
 ### 10.1 `VITE_API_URL`
 
-- `.env.example` gợi ý ví dụ `http://localhost:8080`.
-- `vite.config.ts` có `proxy` map `/api` → `localhost:8080` **rewrite strip `/api`**. Nếu dùng full URL trong `VITE_API_URL`, dev server không cần proxy.
+- `.env.example` / `.env.local.example`: ví dụ `http://localhost:8000`.
+- `vite.config.ts` proxy `/api` → `http://localhost:8000` (strip prefix `/api`). Nếu set full `VITE_API_URL`, có thể bỏ qua proxy.
+- Production Vercel: bắt buộc `VITE_API_URL` (build fail nếu thiếu khi `VERCEL=1`).
 
 ### 10.2 Trang và hành vi
 
-- **`/login`, `/register`**: public.
-- **Protected**: shell với Upload (ẩn nếu `recipient`), Download, Keys, Stress (owner/admin), Admin (admin-only nested guard).
-- **Upload**: nhập **recipient public key base64 X25519** bắt buộc; field “Recipient User ID” mang tính gợi ý/UI — không tự động gọi KV theo email trừ khi mở rộng.
-- **Download**: dán SAS URL; không dùng `GET /files/shared-with-me` trong page hiện tại — **gap** để tái hiện “in-app inbox” như backlog Phase 2 mô tả.
+- **`/login`, `/register`**: public; draft username giữ khi đổi trang (passphrase chỉ RAM).
+- **Protected shell**: Upload (ẩn với `recipient`), Download, Keys, Hồ sơ (`/profile`: kho + lịch sử + cài đặt tài khoản), Admin (users, token security, stress).
+- **Upload**: tìm user theo email (public key từ DB), hoặc dán key X25519; chế độ **gửi share** / **lưu kho**; multipart chunked ≥ 64 MB; draft form giữ khi đổi route.
+- **Download**: dán SAS link (draft lưu); giải mã client với private X25519 đã unlock.
+- **Keys**: tạo/mở khóa keypair, đổi passphrase, đồng bộ public key + `encrypted_key_blob` lên server.
+- **Profile → Lịch sử**: tab upload / download local / hộp nhận (`shared-with-me`); revoke recipient trên file đã upload.
+- **Profile → Kho**: upload vault, chia sẻ envelope, thư mục.
 
 ### 10.3 Axios interceptor
 
@@ -226,8 +278,8 @@ SAS được tạo bằng **user delegation key** (`_generate_sas` trong `main.p
 1. PostgreSQL tạo database; set `DATABASE_URL`; `alembic upgrade head`.
 2. Blob container tồn tại (`AZURE_STORAGE_CONTAINER_NAME`).
 3. Azure Key Vault + quyền cho credential bạn chạy (local: `az login` + RBAC KV Secrets Officer / Storage).
-4. Backend: `pip install -r requirements.txt`, `uvicorn main:app --reload --port 8080` (hoặc 8000 nếu bạn chỉnh; đồng bộ frontend).
-5. Frontend: `npm install`, `npm run dev` (port 5173), `VITE_API_URL` trỏ đúng API và CORS whitelist.
+4. Backend: `pip install -r requirements.txt`, `uvicorn main:app --reload --port 8000` (đồng bộ với proxy Vite mặc định).
+5. Frontend: Node ≥ 20.19, `npm install`, `npm run dev` (port 5173), `VITE_API_URL` trỏ đúng API và `ALLOWED_ORIGINS`.
 6. Đăng ký → login → Keys page tạo cặp khóa → `POST /keys` với Bearer.
 7. Thử nhỏ: single-shot upload → copy SAS → download page.
 8. Lớn: multipart flow → finalize (và sau này thêm envelope recipients khi làm chức inbox).
@@ -246,8 +298,8 @@ SAS được tạo bằng **user delegation key** (`_generate_sas` trong `main.p
 
 ## 15. Mối quan hệ với `README.md`
 
-`README.md` mô tả vision + roadmap phase; **Phase 1/2 trong README một phần đã được code** (JWT, KV thật, DB, multipart, revoke backend). Ta **không** chỉnh README trong bước này; khi refactor nên đồng bộ checklist README với thực tế.
+`README.md` tóm tắt kiến trúc, stack (bảng phiên bản), zero-knowledge key flow và chạy local. Hai file nên **đồng bộ** khi đổi dependency major (React, @noble/curves, JWT) hoặc luồng lưu key.
 
 ---
 
-*Tài liệu sinh để tái hiện dự án: cập nhật khi thay đổi luồng envelope trên frontend hoặc schema DB.*
+*Tài liệu sinh để tái hiện dự án. Cập nhật lần cuối: stack React 19, @noble/curves 2.x, PyJWT, draft form (`useDraftState`), zero-knowledge key vault.*

@@ -9,23 +9,61 @@ Hệ thống lưu trữ và chia sẻ file an toàn trên Azure Blob Storage s�
 
 ```
 secure-file-sharing/
-├── backend/        # FastAPI + Azure SDK
-├── frontend/       # React 18 + Vite + TypeScript + TailwindCSS
+├── backend/        # FastAPI + Azure SDK + PostgreSQL
+├── frontend/       # React 19 + Vite 8 + TypeScript + Tailwind v4
 ├── locksend-ai/    # ML token security (Random Forest + optional HTTP service)
-├── azure-deploy.md
 └── README.md
 ```
 
 ## Công nghệ
 
-| Layer | Stack |
+Phiên bản pin trong `frontend/package.json` và `backend/requirements.txt`. Bảng dưới là tóm tắt stack chính.
+
+### Frontend
+
+| Công nghệ | Phiên bản (repo) | Mục đích |
+|---|---|---|
+| React / React DOM | 19.2.x | SPA |
+| React Router | 7.x | Điều hướng, protected routes |
+| Vite | 8.0.x | Build, HMR |
+| TypeScript | ~5.9 | Type safety |
+| Tailwind CSS | 4.2.x (`@tailwindcss/vite`) | UI |
+| @noble/curves | 2.x | X25519 ECDH, Ed25519 (browser) |
+| Web Crypto API | built-in | AES-256-GCM, HKDF-SHA256, SHA-256, PBKDF2 bọc keypair |
+| Axios | 1.13.x | Gọi API + silent refresh |
+| Node.js | ≥ 20.19 (`.node-version`: 20.19.0) | Dev/build (Vite 8 yêu cầu Node 20.19+) |
+
+Deploy FE thường dùng **Vercel** hoặc **Railway** (`vercel.json`, `nixpacks.toml`); cần `VITE_API_URL` trỏ backend.
+
+### Backend
+
+| Công nghệ | Phiên bản (repo) | Mục đích |
+|---|---|---|
+| Python | 3.11+ (khuyến nghị 3.13 khi dev local) | Runtime |
+| FastAPI | 0.135.x | REST API, OpenAPI |
+| Uvicorn | 0.42.x | ASGI server |
+| SQLAlchemy | 2.0.x (async) + asyncpg | ORM PostgreSQL |
+| Alembic | 1.15.x | Migration |
+| PyJWT | 2.12.x | JWT — **HS256 mặc định**; RS256/ES256 khi cấu hình `JWT_PUBLIC_KEY` |
+| Passlib + bcrypt | 1.7.x / 4.2.x | Hash mật khẩu đăng nhập |
+| Azure SDK | pin trong `requirements.txt` | `azure-storage-blob`, `azure-keyvault-secrets`, `azure-keyvault-keys`, `azure-identity` |
+
+Repo **không** chứa Dockerfile / Docker Compose; chạy local bằng venv + `uvicorn` (xem mục dưới).
+
+### Database & Azure
+
+| Lớp | Stack |
 |---|---|
-| Frontend | React 18, Vite, TypeScript, TailwindCSS, @noble/curves |
-| Backend | FastAPI, Python 3.13, Uvicorn, SQLAlchemy, Alembic |
-| Database | PostgreSQL (`encrypted_key_blob`, public keys, auth, file metadata) |
-| Azure | Blob Storage, Key Vault *(public keys, tuỳ chọn)*, Managed Identity |
-| Mã hóa file | X25519, HKDF-SHA256, AES-256-GCM, Ed25519, SHA-256 (checksum) |
-| Mã hóa keypair | PBKDF2-SHA256 (310k iter) + AES-256-GCM (passphrase client) |
+| Database | PostgreSQL **14+** (`encrypted_key_blob`, public keys, auth, file metadata) |
+| Azure | Blob Storage (ciphertext), Key Vault *(public keys, tùy chọn)*, **DefaultAzureCredential** / Managed Identity |
+| Mã hóa file (client) | X25519, HKDF-SHA256, AES-256-GCM, Ed25519, SHA-256 (checksum) |
+| Mã hóa keypair (client) | PBKDF2-SHA256 (310k iter) + AES-256-GCM (passphrase) |
+
+### LockSend AI (tùy chọn)
+
+| Công nghệ | Mục đích |
+|---|---|
+| scikit-learn, SHAP (`locksend-ai/`, `requirements-ai.txt`) | Phân tích rủi ro JWT/SAS (Admin Token Security) |
 
 ## Chạy local
 
@@ -44,7 +82,9 @@ uvicorn main:app --reload --port 8000
 ### Frontend
 ```bash
 cd frontend
+# Node >= 20.19 (xem package.json engines)
 npm install
+# Sao chép .env.example → .env.local, set VITE_API_URL (vd. http://localhost:8000)
 npm run dev
 ```
 
@@ -59,7 +99,7 @@ pip install -r requirements.txt
 python train.py
 ```
 
-Chi tiết: [locksend-ai/README.md](./locksend-ai/README.md)
+Chi tiết: [locksend-ai/README.md](./locksend-ai/README.md) (local, VPS, Railway)
 
 ## Nguyên tắc bảo mật
 - Client-side encryption 100% — mã hóa/giải mã file hoàn toàn ở trình duyệt

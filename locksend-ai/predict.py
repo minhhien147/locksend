@@ -18,21 +18,22 @@ if hasattr(sys.stdout, "reconfigure"):
 import numpy as np
 import pandas as pd
 
+from model_store import ensure_model, model_path, models_dir
+
 try:
     import shap
 except ImportError:
     shap = None
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODELS_DIR = os.path.join(BASE_DIR, "models")
-MODEL_PATH = os.path.join(MODELS_DIR, "model.pkl")
 DATA_DIR = os.path.join(BASE_DIR, "data")
+MODELS_DIR = models_dir()
+MODEL_PATH = model_path()
 
 
 def load_bundle() -> dict[str, Any]:
-    if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(f"Chưa có model. Chạy: python train.py\n{MODEL_PATH}")
-    with open(MODEL_PATH, "rb") as f:
+    path = ensure_model()
+    with open(path, "rb") as f:
         return pickle.load(f)
 
 

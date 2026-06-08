@@ -85,6 +85,8 @@ interface Overview {
 
 interface AiHealth {
   ready: boolean;
+  mode?: "local" | "remote";
+  ai_url?: string;
   version?: string;
   trained_at?: string;
   metrics?: {
@@ -517,7 +519,13 @@ export default function AdminTokenSecurityPage() {
             <h3 className={`${admin.sectionTitle} mb-2`}>Phân tích bằng LockSend AI</h3>
             <p className="text-xs text-slate-600 dark:text-white/35 mb-4">
               Random Forest (CIC-IDS2017) · SHAP explanation · Top 20 token theo risk score
-              {!aiReady && <span className="text-amber-300/60 ml-2">— model chưa sẵn sàng, cần train trước</span>}
+              {!aiReady && (
+                <span className="text-amber-300/60 ml-2">
+                  — {aiHealth?.mode === "remote"
+                    ? (aiHealth.error ?? aiHealth.hint ?? "AI remote chưa kết nối được")
+                    : (aiHealth?.hint ?? "model chưa sẵn sàng — set LOCKSEND_AI_URL trên Railway BE")}
+                </span>
+              )}
             </p>
             <button
               type="button"
