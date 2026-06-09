@@ -422,6 +422,31 @@ function _parseEncryptionMetadataFromHeaders(
   return JSON.parse(metadataJson) as EncryptionMetadata;
 }
 
+/** Metadata + file_id từ SAS URL (không tải blob — dùng cho file lớn). */
+export async function resolveCiphertextInfoBySas(sasUrl: string): Promise<{
+  file_id: string;
+  original_filename: string;
+  metadata: Record<string, unknown>;
+}> {
+  const response = await api.post<{
+    file_id: string;
+    original_filename: string;
+    metadata: Record<string, unknown>;
+  }>("/files/ciphertext/info-by-sas", { sas_url: sasUrl });
+  return response.data;
+}
+
+/** Tải một encrypted chunk (file lớn — peak RAM thấp). */
+export async function downloadCiphertextChunk(
+  fileId: string,
+  chunkIndex: number
+): Promise<Uint8Array> {
+  const response = await api.get(`/files/${fileId}/ciphertext/chunks/${chunkIndex}`, {
+    responseType: "arraybuffer",
+  });
+  return new Uint8Array(response.data as ArrayBuffer);
+}
+
 /** Tải ciphertext từ SAS URL qua backend proxy (tránh CORS Azure). */
 export async function downloadCiphertext(
   sasUrl: string,

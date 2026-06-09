@@ -2,15 +2,24 @@ import { useState } from "react";
 import {
   decryptFile,
   decryptFileChunked,
+  decryptChunkedToWritable,
   downloadBlob,
+  shouldStreamDecrypt,
   type ChunkedEncryptionMetadata,
   type EncryptionMetadata,
 } from "../utils/crypto";
+import {
+  closeSaveFile,
+  pickSaveFile,
+  supportsStreamingFileSave,
+} from "../utils/fileSave";
 import { getKeys } from "../utils/keyVault";
 import {
   downloadCiphertext,
+  downloadCiphertextChunk,
   downloadVaultCiphertext,
   recordDownloadLog,
+  resolveCiphertextInfoBySas,
 } from "../utils/api";
 import { saveDownloadEntry } from "../utils/downloadHistory";
 
@@ -56,8 +65,110 @@ const initialState: UseDownloadState = {
   verifiedMeta: null,
 };
 
+function mergeMetadata(
+  primary: Record<string, unknown>,
+  fallback?: Record<string, unknown>
+): EncryptionMetadata {
+  return { ...(fallback ?? {}), ...primary } as unknown as EncryptionMetadata;
+}
+
 export function useDownload(): UseDownloadReturn {
   const [state, setState] = useState<UseDownloadState>(initialState);
+
+  async function finishDownload(
+    metadata: EncryptionMetadata,
+    fileSizeBytes: number,
+    logSasUrl: string,
+    serverFileId?: string
+  ): Promise<void> {
+    const isChunked = (metadata as ChunkedEncryptionMetadata).isChunked ?? false;
+    saveDownloadEntry({
+      sasUrl: logSasUrl,
+      fileName: metadata.fileName,
+      mimeType: metadata.mimeType,
+      fileSizeBytes,
+      checksum: metadata.plaintextChecksum ?? undefined,
+      isChunked,
+      serverFileId,
+    });
+    void recordDownloadLog({ sasUrl: logSasUrl, serverFileId });
+    setState({
+      stage: "done",
+      error: "",
+      fileName: metadata.fileName,
+      chunkProgress: null,
+      isChunkedFile: isChunked,
+      verifiedMeta: metadata,
+    });
+  }
+
+  async function runStreamingDecrypt(
+    fileId: string,
+    metadata: ChunkedEncryptionMetadata,
+    logSasUrl: string
+  ): Promise<void> {
+    const myKeys = getKeys();
+    if (!myKeys) {
+      setState((prev) => ({
+        ...prev,
+        error:
+          "Chưa mở khóa keypair. Vào trang Quản lý Keys, nhập passphrase (hoặc tạo key mới).",
+      }));
+      return;
+    }
+
+    if (!supportsStreamingFileSave()) {
+      setState((prev) => ({
+        ...prev,
+        error:
+          "File lớn (≥64MB) cần Chrome hoặc Edge để lưu trực tiếp ra đĩa. Trình duyệt hiện tại không hỗ trợ.",
+        stage: "error",
+      }));
+      return;
+    }
+
+    setState({
+      stage: "decrypting",
+      error: "",
+      fileName: metadata.fileName,
+      chunkProgress: { done: 0, total: metadata.chunkCount },
+      isChunkedFile: true,
+      verifiedMeta: null,
+    });
+
+    let writable: FileSystemWritableFileStream | null = null;
+    try {
+      writable = await pickSaveFile(metadata.fileName);
+      const fileSizeBytes = await decryptChunkedToWritable(
+        metadata,
+        myKeys.x25519.privateKey,
+        (chunkIndex) => downloadCiphertextChunk(fileId, chunkIndex),
+        writable,
+        (done, total) =>
+          setState((prev) => ({
+            ...prev,
+            chunkProgress: { done, total },
+          }))
+      );
+      await closeSaveFile(writable);
+      writable = null;
+      await finishDownload(metadata, fileSizeBytes, logSasUrl, fileId);
+    } catch (e) {
+      if (writable) {
+        try {
+          await writable.abort();
+        } catch {
+          /* ignore */
+        }
+      }
+      setState((prev) => ({
+        ...prev,
+        error: (e as Error)?.message ?? "Đã xảy ra lỗi không xác định.",
+        stage: "error",
+        chunkProgress: null,
+      }));
+    }
+  }
 
   async function runDecryptPipeline(
     load: () => Promise<{
@@ -122,38 +233,17 @@ export function useDownload(): UseDownloadReturn {
         );
       }
 
-      const isChunked = (metadata as ChunkedEncryptionMetadata).isChunked ?? false;
       downloadBlob(plaintext, metadata.fileName, metadata.mimeType);
-
-      saveDownloadEntry({
-        sasUrl: logSasUrl,
-        fileName: metadata.fileName,
-        mimeType: metadata.mimeType,
-        fileSizeBytes: plaintext.byteLength,
-        checksum: metadata.plaintextChecksum ?? undefined,
-        isChunked,
-        serverFileId: serverFileId ?? undefined,
-      });
-
-      void recordDownloadLog({
-        sasUrl: logSasUrl,
-        serverFileId,
-      });
-
-      setState({
-        stage: "done",
-        error: "",
-        fileName: metadata.fileName,
-        chunkProgress: null,
-        isChunkedFile: isChunked,
-        verifiedMeta: metadata,
-      });
+      await finishDownload(
+        metadata,
+        plaintext.byteLength,
+        logSasUrl,
+        serverFileId
+      );
     } catch (e) {
       setState((prev) => ({
         ...prev,
-        error:
-          (e as Error)?.message ??
-          "Đã xảy ra lỗi không xác định.",
+        error: (e as Error)?.message ?? "Đã xảy ra lỗi không xác định.",
         stage: "error",
         chunkProgress: null,
       }));
@@ -171,9 +261,26 @@ export function useDownload(): UseDownloadReturn {
       }));
       return;
     }
+
+    const trimmed = sasUrl.trim();
+    try {
+      const info = await resolveCiphertextInfoBySas(trimmed);
+      const metadata = mergeMetadata(info.metadata, fallbackMetadata);
+      if (shouldStreamDecrypt(metadata)) {
+        await runStreamingDecrypt(
+          info.file_id,
+          metadata as ChunkedEncryptionMetadata,
+          trimmed
+        );
+        return;
+      }
+    } catch {
+      /* fallback: file nhỏ hoặc endpoint cũ */
+    }
+
     await runDecryptPipeline(
-      () => downloadCiphertext(sasUrl.trim(), fallbackMetadata),
-      sasUrl.trim()
+      () => downloadCiphertext(trimmed, fallbackMetadata),
+      trimmed
     );
   }
 
@@ -181,6 +288,16 @@ export function useDownload(): UseDownloadReturn {
     fileId: string,
     encryptionMetadata: Record<string, unknown>
   ): Promise<void> {
+    const metadata = encryptionMetadata as unknown as EncryptionMetadata;
+    if (shouldStreamDecrypt(metadata)) {
+      await runStreamingDecrypt(
+        fileId,
+        metadata as ChunkedEncryptionMetadata,
+        `vault://${fileId}`
+      );
+      return;
+    }
+
     await runDecryptPipeline(
       () => downloadVaultCiphertext(fileId, encryptionMetadata),
       `vault://${fileId}`
@@ -198,4 +315,3 @@ export function useDownload(): UseDownloadReturn {
     reset,
   };
 }
-

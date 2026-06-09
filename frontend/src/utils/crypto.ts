@@ -501,6 +501,9 @@ export const DEFAULT_CHUNK_SIZE = 64 * 1024 * 1024;
  */
 export const CHUNKED_THRESHOLD = 64 * 1024 * 1024;
 
+/** File chunked ≥ ngưỡng này → download theo từng chunk, lưu thẳng ra đĩa. */
+export const STREAMING_DOWNLOAD_THRESHOLD = CHUNKED_THRESHOLD;
+
 /**
  * Sinh nonce 12-byte cho chunk thứ i:
  *   nonce[0:8]  = baseNonce (8 bytes ngẫu nhiên, cố định cho toàn session)
@@ -756,6 +759,87 @@ export async function decryptFileChunked(
     pos += chunk.length;
   }
   return result;
+}
+
+/** Xác thực manifest + dẫn xuất AES key cho giải mã chunked. */
+export async function prepareChunkedDecryption(
+  metadata: ChunkedEncryptionMetadata,
+  recipientX25519PrivateKey: Uint8Array
+): Promise<{ aesKey: CryptoKey; baseNonce: Uint8Array }> {
+  const signerPublicKey = fromBase64(metadata.signerPublicKey);
+  const signature = fromBase64(metadata.signature);
+  const manifest = buildChunkedManifest({
+    ephemeralPublicKey: metadata.ephemeralPublicKey,
+    baseNonce: metadata.baseNonce,
+    chunkCount: metadata.chunkCount,
+    chunkSize: metadata.chunkSize,
+    fileName: metadata.fileName,
+    fileSize: metadata.fileSize,
+    mimeType: metadata.mimeType,
+    chunkChecksums: metadata.chunkChecksums,
+  });
+
+  if (!verifyManifest(manifest, signature, signerPublicKey)) {
+    throw new Error("Chữ ký Ed25519 không hợp lệ — metadata bị giả mạo!");
+  }
+
+  const ephemeralPublicKey = fromBase64(metadata.ephemeralPublicKey);
+  const sharedSecret = x25519.getSharedSecret(
+    recipientX25519PrivateKey,
+    ephemeralPublicKey
+  );
+  const aesKey = await deriveAesKeyOnly(sharedSecret, ephemeralPublicKey);
+  const baseNonce = fromBase64(metadata.baseNonce);
+  return { aesKey, baseNonce };
+}
+
+/**
+ * Giải mã chunked từng phần — peak RAM ≈ 2 × chunkSize (không ghép toàn bộ file).
+ */
+export async function decryptChunkedToWritable(
+  metadata: ChunkedEncryptionMetadata,
+  recipientX25519PrivateKey: Uint8Array,
+  getEncryptedChunk: (chunkIndex: number) => Promise<Uint8Array>,
+  writable: FileSystemWritableFileStream,
+  onProgress?: (done: number, total: number) => void
+): Promise<number> {
+  const { aesKey, baseNonce } = await prepareChunkedDecryption(
+    metadata,
+    recipientX25519PrivateKey
+  );
+
+  let totalWritten = 0;
+  for (let i = 0; i < metadata.chunkCount; i++) {
+    const encryptedChunk = await getEncryptedChunk(i);
+    const plaintextChunk = await decryptChunk(aesKey, encryptedChunk, baseNonce, i);
+    if (metadata.chunkChecksums && metadata.chunkChecksums.length > i) {
+      const computed = await computeSHA256Hex(plaintextChunk);
+      if (computed !== metadata.chunkChecksums[i]) {
+        throw new Error(`Chunk ${i}: SHA-256 không khớp.`);
+      }
+    }
+    await writable.write(new Uint8Array(plaintextChunk));
+    totalWritten += plaintextChunk.byteLength;
+    onProgress?.(i + 1, metadata.chunkCount);
+  }
+
+  if (totalWritten !== metadata.fileSize) {
+    throw new Error(
+      `Kích thước plaintext (${totalWritten}) không khớp metadata (${metadata.fileSize}).`
+    );
+  }
+  return totalWritten;
+}
+
+export function isChunkedMetadata(
+  metadata: EncryptionMetadata
+): metadata is ChunkedEncryptionMetadata {
+  return Boolean((metadata as ChunkedEncryptionMetadata).isChunked);
+}
+
+export function shouldStreamDecrypt(metadata: EncryptionMetadata): boolean {
+  if (!isChunkedMetadata(metadata)) return false;
+  return metadata.fileSize >= STREAMING_DOWNLOAD_THRESHOLD;
 }
 
 // ─── Key Types ────────────────────────────────────────────────────────────────

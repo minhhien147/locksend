@@ -38,6 +38,10 @@ export default function DownloadPage() {
     <div className="max-w-2xl mx-auto space-y-5">
       <PageHeader title="Download" />
 
+      <p className={`text-xs ${text.muted} -mt-2`}>
+        File lớn (≥64MB, chunked): tải và giải mã từng phần, lưu thẳng ra đĩa — dùng Chrome hoặc Edge.
+      </p>
+
       <KeyUnlockBanner onUnlocked={() => setUnlockTick((n) => n + 1)} />
 
       <Card className="space-y-4">
