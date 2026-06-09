@@ -43,6 +43,35 @@ function RecBadge({ rec }: { rec: string }) {
   );
 }
 
+const BEHAVIOR_BADGE: Record<string, string> = {
+  high: "bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/25",
+  medium: "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/25",
+  low: "bg-slate-500/15 text-slate-300 ring-1 ring-slate-500/20",
+};
+
+const AGREEMENT_BADGE: Record<string, string> = {
+  agree: "bg-emerald-500/10 text-emerald-300",
+  partial: "bg-amber-500/10 text-amber-300",
+  disagree: "bg-rose-500/10 text-rose-300",
+};
+
+function BehaviorBadge({ label, severity }: { label: string; severity?: string }) {
+  const cls = BEHAVIOR_BADGE[severity ?? "medium"] ?? BEHAVIOR_BADGE.medium;
+  return (
+    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+function AgreementBadge({ status, label }: { status: string; label: string }) {
+  return (
+    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${AGREEMENT_BADGE[status] ?? AGREEMENT_BADGE.partial}`}>
+      {label}
+    </span>
+  );
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 interface TokenMetric {
@@ -108,6 +137,20 @@ interface ShapFeature {
   direction: string;
 }
 
+interface BehaviorBadgeData {
+  id: string;
+  label: string;
+  severity: string;
+}
+
+interface RuleAiAgreement {
+  status: string;
+  label: string;
+  rule_level?: string;
+  ai_level?: string;
+  delta?: number;
+}
+
 interface AiTokenResult {
   token_id?: string;
   token_type?: string;
@@ -117,14 +160,126 @@ interface AiTokenResult {
   ai_level_raw: string;
   decision: string;
   is_attack: boolean;
+  rule_score?: number;
+  rule_level?: string;
+  rule_recommendation?: string;
+  behavior_badges?: BehaviorBadgeData[];
+  summary_vi?: string;
+  agreement?: RuleAiAgreement;
   explanation: {
     summary: string;
+    summary_vi?: string;
     top_features: ShapFeature[];
   };
   error?: string;
 }
 
-type Tab = "overview" | "tokens" | "ai-report";
+type Tab = "overview" | "tokens" | "ai-report" | "trends" | "files";
+
+interface SecurityAlert {
+  id: string;
+  token_type: string;
+  file_id?: string | null;
+  file_name?: string | null;
+  subject_label?: string;
+  rule_score: number;
+  ai_score_pct: number;
+  decision: string;
+  agreement_status?: string;
+  behavior_badges?: BehaviorBadgeData[];
+  summary_vi?: string;
+  is_read: boolean;
+  created_at: string;
+}
+
+interface TrendData {
+  days: number;
+  labels: string[];
+  access_events: number[];
+  ai_alerts: number[];
+  ai_high_scores: number[];
+  rule_ai_disagree: number[];
+  totals: Record<string, number>;
+}
+
+interface TopFileRow {
+  file_id: string | null;
+  file_name: string;
+  downloads: number;
+  unique_ips: number;
+  unique_users: number;
+  active_sas_links: number;
+  ai_alerts: number;
+  suspicious: boolean;
+  owner_email?: string | null;
+  owner_id?: string | null;
+  storage_mode?: string | null;
+}
+
+interface FileActivityData {
+  days: number;
+  labels: string[];
+  summary: {
+    uploads: number;
+    downloads: number;
+    unique_files_downloaded: number;
+    suspicious_files: number;
+  };
+  trend: {
+    uploads_per_day: number[];
+    downloads_per_day: number[];
+  };
+  top_file_trends: { file_id: string; file_name: string; downloads_per_day: number[] }[];
+  top_files: TopFileRow[];
+}
+
+interface FileDetailData {
+  file_id: string;
+  file_name: string;
+  owner_email?: string | null;
+  owner_id?: string | null;
+  storage_mode?: string | null;
+  file_size_bytes: number;
+  created_at: string;
+  stats: {
+    downloads: number;
+    uploads: number;
+    unique_ips: number;
+    active_sas_links: number;
+    suspicious: boolean;
+  };
+  recent_downloads: { user_id?: string | null; ip_address?: string | null; created_at: string }[];
+  recent_alerts: { id: string; ai_score_pct: number; decision: string; summary_vi?: string; created_at: string }[];
+}
+
+function MiniBarChart({
+  labels,
+  series,
+  colorClass,
+}: {
+  labels: string[];
+  series: number[];
+  colorClass: string;
+}) {
+  const max = Math.max(1, ...series);
+  return (
+    <div className="flex items-end gap-1.5 h-28">
+      {series.map((v, i) => (
+        <div key={labels[i]} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+          <span className="text-[9px] text-slate-500 dark:text-white/30">{v || ""}</span>
+          <div
+            className={`w-full rounded-t ${colorClass} transition-all`}
+            style={{ height: `${Math.max(4, (v / max) * 100)}%` }}
+            title={`${labels[i]}: ${v}`}
+          />
+          <span className="text-[8px] text-slate-500 dark:text-white/25 truncate w-full text-center">
+            {labels[i].slice(5)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
@@ -154,6 +309,16 @@ export default function AdminTokenSecurityPage() {
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
+
+  const [alerts, setAlerts] = useState<SecurityAlert[]>([]);
+  const [unreadAlerts, setUnreadAlerts] = useState(0);
+  const [trends, setTrends] = useState<TrendData | null>(null);
+  const [trendsLoading, setTrendsLoading] = useState(false);
+
+  const [fileActivity, setFileActivity] = useState<FileActivityData | null>(null);
+  const [fileActivityLoading, setFileActivityLoading] = useState(false);
+  const [fileDetail, setFileDetail] = useState<FileDetailData | null>(null);
+  const [fileDetailLoading, setFileDetailLoading] = useState(false);
 
   const flash = (type: "ok" | "err", msg: string) => {
     setFeedback({ type, msg });
@@ -194,6 +359,99 @@ export default function AdminTokenSecurityPage() {
 
   useEffect(() => { void loadAiHealth(); }, [loadAiHealth]);
 
+  const loadAlerts = useCallback(async () => {
+    try {
+      const res = await api.get<{ alerts: SecurityAlert[]; unread_count: number }>(
+        "/auth/admin/token-security/alerts?limit=15"
+      );
+      setAlerts(res.data.alerts ?? []);
+      setUnreadAlerts(res.data.unread_count ?? 0);
+    } catch {
+      /* optional */
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAlerts();
+    const t = setInterval(() => void loadAlerts(), 30_000);
+    return () => clearInterval(t);
+  }, [loadAlerts]);
+
+  const loadTrends = useCallback(async () => {
+    setTrendsLoading(true);
+    try {
+      const res = await api.get<TrendData>("/auth/admin/token-security/ai/trends?days=7");
+      setTrends(res.data);
+    } catch {
+      flash("err", "Không tải được dữ liệu trend");
+    } finally {
+      setTrendsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "trends") void loadTrends();
+  }, [activeTab, loadTrends]);
+
+  const loadFileActivity = useCallback(async () => {
+    setFileActivityLoading(true);
+    try {
+      const res = await api.get<FileActivityData>(
+        "/auth/admin/token-security/files/activity?days=7&limit=20"
+      );
+      setFileActivity(res.data);
+    } catch {
+      flash("err", "Không tải được dữ liệu file activity");
+    } finally {
+      setFileActivityLoading(false);
+    }
+  }, []);
+
+  const loadFileDetail = useCallback(async (fileId: string) => {
+    setFileDetailLoading(true);
+    try {
+      const res = await api.get<FileDetailData>(
+        `/auth/admin/token-security/files/${fileId}/activity?days=7`
+      );
+      setFileDetail(res.data);
+    } catch {
+      flash("err", "Không tải được chi tiết file");
+      setFileDetail(null);
+    } finally {
+      setFileDetailLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "files") {
+      void loadFileActivity();
+      setFileDetail(null);
+    }
+  }, [activeTab, loadFileActivity]);
+
+  const openFileTab = (fileId: string) => {
+    setActiveTab("files");
+    void loadFileDetail(fileId);
+  };
+
+  const markAlertRead = async (id: string) => {
+    try {
+      await api.post(`/auth/admin/token-security/alerts/${id}/read`);
+      void loadAlerts();
+    } catch {
+      flash("err", "Không cập nhật được cảnh báo");
+    }
+  };
+
+  const markAllAlertsRead = async () => {
+    try {
+      await api.post("/auth/admin/token-security/alerts/read-all");
+      void loadAlerts();
+    } catch {
+      flash("err", "Không cập nhật được cảnh báo");
+    }
+  };
+
   // ── Load token list ─────────────────────────────────────────────────────────
 
   const loadTokens = useCallback(async (type: "all" | "jwt" | "sas" = tokenType) => {
@@ -215,6 +473,35 @@ export default function AdminTokenSecurityPage() {
   }, [activeTab, loadTokens]);
 
   // ── AI analysis ─────────────────────────────────────────────────────────────
+
+  const exportAiCsv = () => {
+    if (!aiResults.length) return;
+    const header = [
+      "token_id", "token_type", "email", "rule_score", "rule_level", "rule_rec",
+      "ai_score_pct", "ai_level", "decision", "agreement", "behaviors", "summary_vi",
+    ];
+    const rows = aiResults.map((r, i) => {
+      const rule = aiRuleMetrics[i];
+      const esc = (v: string | number | undefined) => {
+        const s = String(v ?? "");
+        return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      return [
+        r.token_id, r.token_type, rule?.email ?? "",
+        r.rule_score ?? rule?.risk_score, r.rule_level ?? rule?.risk_level, r.rule_recommendation ?? rule?.recommendation,
+        r.risk_score_pct, r.ai_level_raw, r.decision,
+        r.agreement?.label ?? "", (r.behavior_badges ?? []).map((b) => b.label).join("; "),
+        r.summary_vi ?? r.explanation?.summary_vi ?? "",
+      ].map(esc).join(",");
+    });
+    const blob = new Blob([header.join(",") + "\n" + rows.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `locksend-ai-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const runAiAnalyze = async () => {
     setAnalyzing(true);
@@ -340,6 +627,63 @@ export default function AdminTokenSecurityPage() {
         </div>
       </div>
 
+      {/* Realtime alerts */}
+      {unreadAlerts > 0 && (
+        <div className={`${surfaceCard} px-5 py-4 border-amber-500/20`}>
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <span className="text-sm font-semibold text-amber-300">
+              Cảnh báo AI realtime ({unreadAlerts})
+            </span>
+            <button
+              type="button"
+              onClick={() => void markAllAlertsRead()}
+              className="ml-auto text-[11px] text-slate-400 hover:text-white"
+            >
+              Đánh dấu đã đọc
+            </button>
+          </div>
+          <ul className="space-y-2 max-h-48 overflow-y-auto">
+            {alerts.filter((a) => !a.is_read).slice(0, 5).map((a) => (
+              <li key={a.id} className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-slate-700 dark:text-white/70 truncate max-w-[180px]">
+                  {a.file_name ? (
+                    a.file_id ? (
+                      <button
+                        type="button"
+                        onClick={() => openFileTab(a.file_id!)}
+                        className="text-sky-400 hover:underline truncate max-w-[180px] text-left"
+                        title={a.file_name}
+                      >
+                        {a.file_name}
+                      </button>
+                    ) : (
+                      a.file_name
+                    )
+                  ) : (
+                    a.subject_label ?? a.id.slice(0, 8)
+                  )}
+                </span>
+                {a.token_type === "sas" && a.file_name && (
+                  <span className="text-[10px] text-slate-500">SAS</span>
+                )}
+                <span className="text-slate-500">Rule {a.rule_score} → AI {a.ai_score_pct}%</span>
+                <RecBadge rec={a.decision} />
+                {a.behavior_badges?.slice(0, 1).map((b) => (
+                  <BehaviorBadge key={b.id} label={b.label} severity={b.severity} />
+                ))}
+                <button
+                  type="button"
+                  onClick={() => void markAlertRead(a.id)}
+                  className="text-[10px] text-slate-500 hover:text-white ml-auto"
+                >
+                  Đã đọc
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Feedback */}
       {feedback && (
         <p className={`text-sm px-4 py-2.5 rounded-xl border ${
@@ -406,12 +750,20 @@ export default function AdminTokenSecurityPage() {
 
       {/* Tabs */}
       <div className={`${surfaceCard} p-1.5 inline-flex gap-1`}>
-        {(["overview", "tokens", "ai-report"] as Tab[]).map((t) => (
+        {(["overview", "tokens", "ai-report", "trends", "files"] as Tab[]).map((t) => (
           <button key={t} type="button" onClick={() => setActiveTab(t)}
             className={`px-4 py-2 rounded-xl text-[13px] font-medium transition ${
               activeTab === t ? admin.tabActive : admin.tabInactive
             }`}>
-            {t === "overview" ? "Overview" : t === "tokens" ? "Token List" : "AI Report"}
+            {t === "overview"
+              ? "Overview"
+              : t === "tokens"
+                ? "Token List"
+                : t === "ai-report"
+                  ? "AI Report"
+                  : t === "trends"
+                    ? "Trend"
+                    : "File Activity"}
           </button>
         ))}
       </div>
@@ -626,6 +978,251 @@ export default function AdminTokenSecurityPage() {
         </div>
       )}
 
+      {/* ── Tab: Trends ── */}
+      {activeTab === "trends" && (
+        <div className="space-y-4">
+          {trendsLoading && (
+            <div className="flex justify-center py-10"><LoadingSpinner /></div>
+          )}
+          {trends && !trendsLoading && (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: "Truy cập token", value: trends.totals.access_events, color: "text-violet-400" },
+                  { label: "Cảnh báo AI", value: trends.totals.ai_alerts, color: "text-amber-400" },
+                  { label: "Score AI ≥50%", value: trends.totals.ai_high_scores, color: "text-rose-400" },
+                  { label: "Rule ≠ AI", value: trends.totals.rule_ai_disagree, color: "text-orange-400" },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className={`${surfaceCard} p-4 text-center`}>
+                    <p className={`text-2xl font-bold ${color}`}>{value}</p>
+                    <p className="text-[11px] text-slate-600 dark:text-white/35 mt-1">{label}</p>
+                    <p className="text-[10px] text-slate-500 dark:text-white/25">{trends.days} ngày</p>
+                  </div>
+                ))}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                {[
+                  { title: "Truy cập token / ngày", data: trends.access_events, color: "bg-violet-500/70" },
+                  { title: "Cảnh báo AI / ngày", data: trends.ai_alerts, color: "bg-amber-500/70" },
+                  { title: "AI score cao / ngày", data: trends.ai_high_scores, color: "bg-rose-500/70" },
+                  { title: "Rule ≠ AI / ngày", data: trends.rule_ai_disagree, color: "bg-orange-500/70" },
+                ].map(({ title, data, color }) => (
+                  <div key={title} className={`${surfaceCard} p-5`}>
+                    <h4 className="text-xs font-semibold text-slate-600 dark:text-white/50 mb-4">{title}</h4>
+                    <MiniBarChart labels={trends.labels} series={data} colorClass={color} />
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Tab: File Activity ── */}
+      {activeTab === "files" && (
+        <div className="space-y-4">
+          {fileActivityLoading && (
+            <div className="flex justify-center py-10"><LoadingSpinner /></div>
+          )}
+          {fileActivity && !fileActivityLoading && (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: "Upload", value: fileActivity.summary.uploads, color: "text-indigo-400" },
+                  { label: "Download", value: fileActivity.summary.downloads, color: "text-sky-400" },
+                  { label: "File được tải", value: fileActivity.summary.unique_files_downloaded, color: "text-violet-400" },
+                  { label: "File rủi ro", value: fileActivity.summary.suspicious_files, color: "text-rose-400" },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className={`${surfaceCard} p-4 text-center`}>
+                    <p className={`text-2xl font-bold ${color}`}>{value}</p>
+                    <p className="text-[11px] text-slate-600 dark:text-white/35 mt-1">{label}</p>
+                    <p className="text-[10px] text-slate-500 dark:text-white/25">{fileActivity.days} ngày</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                {[
+                  { title: "Upload / ngày", data: fileActivity.trend.uploads_per_day, color: "bg-indigo-500/70" },
+                  { title: "Download / ngày", data: fileActivity.trend.downloads_per_day, color: "bg-sky-500/70" },
+                ].map(({ title, data, color }) => (
+                  <div key={title} className={`${surfaceCard} p-5`}>
+                    <h4 className="text-xs font-semibold text-slate-600 dark:text-white/50 mb-4">{title}</h4>
+                    <MiniBarChart labels={fileActivity.labels} series={data} colorClass={color} />
+                  </div>
+                ))}
+              </div>
+
+              {fileActivity.top_file_trends.length > 0 && (
+                <div className={`${surfaceCard} p-5`}>
+                  <h4 className="text-xs font-semibold text-slate-600 dark:text-white/50 mb-4">
+                    Top file — download / ngày
+                  </h4>
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {fileActivity.top_file_trends.map((f) => (
+                      <div key={f.file_id} className="rounded-xl border border-slate-200/10 p-3">
+                        <button
+                          type="button"
+                          onClick={() => void loadFileDetail(f.file_id)}
+                          className="text-xs font-medium text-sky-400 hover:underline truncate block max-w-full mb-2 text-left"
+                          title={f.file_name}
+                        >
+                          {f.file_name}
+                        </button>
+                        <MiniBarChart
+                          labels={fileActivity.labels}
+                          series={f.downloads_per_day}
+                          colorClass="bg-emerald-500/70"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className={`${surfaceCard} overflow-hidden`}>
+                <div className="px-5 py-3 border-b border-slate-200/10 flex items-center justify-between">
+                  <h3 className={admin.sectionTitle}>Top file theo lượt tải</h3>
+                  <button type="button" onClick={() => void loadFileActivity()} className={admin.btnGhost}>
+                    Làm mới
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-slate-500 dark:text-white/35 border-b border-slate-200/10">
+                        <th className="px-4 py-2 font-medium">File</th>
+                        <th className="px-4 py-2 font-medium">Owner</th>
+                        <th className="px-4 py-2 font-medium text-right">DL</th>
+                        <th className="px-4 py-2 font-medium text-right">IP</th>
+                        <th className="px-4 py-2 font-medium text-right">SAS</th>
+                        <th className="px-4 py-2 font-medium text-right">AI</th>
+                        <th className="px-4 py-2 font-medium">Risk</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fileActivity.top_files.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                            Chưa có download trong {fileActivity.days} ngày
+                          </td>
+                        </tr>
+                      )}
+                      {fileActivity.top_files.map((f) => (
+                        <tr
+                          key={`${f.file_id}-${f.file_name}`}
+                          className="border-b border-slate-200/5 hover:bg-slate-500/5"
+                        >
+                          <td className="px-4 py-2.5 max-w-[200px]">
+                            {f.file_id ? (
+                              <button
+                                type="button"
+                                onClick={() => void loadFileDetail(f.file_id!)}
+                                className="text-sky-400 hover:underline truncate block max-w-full text-left"
+                                title={f.file_name}
+                              >
+                                {f.file_name}
+                              </button>
+                            ) : (
+                              <span className="truncate block">{f.file_name}</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 text-slate-600 dark:text-white/45 truncate max-w-[140px]">
+                            {f.owner_email ?? "—"}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-mono">{f.downloads}</td>
+                          <td className="px-4 py-2.5 text-right font-mono">{f.unique_ips}</td>
+                          <td className="px-4 py-2.5 text-right font-mono">{f.active_sas_links}</td>
+                          <td className="px-4 py-2.5 text-right font-mono">{f.ai_alerts || "—"}</td>
+                          <td className="px-4 py-2.5">
+                            {f.suspicious || f.ai_alerts > 0 ? (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-300">
+                                {f.ai_alerts > 0 ? "AI" : "IP"}
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+
+          {(fileDetailLoading || fileDetail) && (
+            <div className={`${surfaceCard} p-5`}>
+              {fileDetailLoading && <LoadingSpinner size="sm" />}
+              {fileDetail && !fileDetailLoading && (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-start gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-800 dark:text-white/90">
+                        {fileDetail.file_name}
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Owner: {fileDetail.owner_email ?? "—"} · {fileDetail.storage_mode ?? "share"}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFileDetail(null)}
+                      className="ml-auto text-xs text-slate-500 hover:text-white"
+                    >
+                      Đóng
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-xs">
+                    {[
+                      ["Download", fileDetail.stats.downloads],
+                      ["Upload", fileDetail.stats.uploads],
+                      ["IP", fileDetail.stats.unique_ips],
+                      ["SAS active", fileDetail.stats.active_sas_links],
+                      ["Rủi ro", fileDetail.stats.suspicious ? "Có" : "Không"],
+                    ].map(([label, val]) => (
+                      <div key={String(label)} className="rounded-lg bg-slate-500/5 py-2">
+                        <p className="font-mono font-semibold">{val}</p>
+                        <p className="text-slate-500">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {fileDetail.recent_alerts.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-amber-300 mb-2">Cảnh báo AI liên quan</h4>
+                      <ul className="space-y-1.5 text-xs">
+                        {fileDetail.recent_alerts.map((a) => (
+                          <li key={a.id} className="flex flex-wrap gap-2 text-slate-600 dark:text-white/60">
+                            <RecBadge rec={a.decision} />
+                            <span>AI {a.ai_score_pct}%</span>
+                            <span className="text-slate-500">{a.summary_vi ?? ""}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {fileDetail.recent_downloads.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-slate-600 dark:text-white/50 mb-2">
+                        Download gần đây
+                      </h4>
+                      <ul className="space-y-1 text-[11px] font-mono text-slate-500">
+                        {fileDetail.recent_downloads.map((d, i) => (
+                          <li key={i}>
+                            {d.created_at.slice(0, 16)} · {d.ip_address ?? "?"} · user {d.user_id?.slice(0, 8) ?? "?"}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Tab: AI Report ── */}
       {activeTab === "ai-report" && (
         <div className="space-y-4">
@@ -663,15 +1260,22 @@ export default function AdminTokenSecurityPage() {
             <>
               {/* Summary stats */}
               <div className={`${surfaceCard} p-5`}>
-                <div className="flex items-center gap-3 mb-3">
+                <div className="flex flex-wrap items-center gap-3 mb-3">
                   <h3 className="text-sm font-semibold text-emerald-300">Kết quả LockSend AI</h3>
                   <span className="text-xs text-slate-500 dark:text-white/30">{aiResults.length} token được phân tích</span>
+                  <button
+                    type="button"
+                    onClick={exportAiCsv}
+                    className="ml-auto text-xs px-3 py-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition"
+                  >
+                    Xuất CSV
+                  </button>
                 </div>
-                <div className="grid grid-cols-3 gap-4 text-center">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-center">
                   {[
-                    { label: "Tấn công phát hiện", value: aiResults.filter(r => r.is_attack).length, color: "text-rose-400" },
-                    { label: "REVOKE",  value: aiResults.filter(r => r.decision === "REVOKE").length,  color: "text-rose-300" },
-                    { label: "MONITOR", value: aiResults.filter(r => r.decision === "MONITOR").length, color: "text-amber-300" },
+                    { label: "Cần theo dõi", value: aiResults.filter(r => r.decision === "MONITOR").length, color: "text-amber-300" },
+                    { label: "Cần thu hồi", value: aiResults.filter(r => r.decision === "REVOKE").length, color: "text-rose-300" },
+                    { label: "Rule ≠ AI", value: aiResults.filter(r => r.agreement?.status === "disagree").length, color: "text-orange-300" },
                   ].map(({ label, value, color }) => (
                     <div key={label}>
                       <p className={`text-xl font-bold ${color}`}>{value}</p>
@@ -694,43 +1298,52 @@ export default function AdminTokenSecurityPage() {
                         {r.token_id?.slice(0, 12)}… — lỗi: {r.error}
                       </div>
                     );
+                    const ruleScore = r.rule_score ?? rule?.risk_score ?? "—";
+                    const showDisagree = r.agreement?.status === "disagree";
                     return (
-                      <div key={r.token_id ?? i} className="px-5 py-4 space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs text-slate-700 dark:text-white/60 font-mono">
-                            {rule?.email ?? r.token_id?.slice(0, 16) ?? "—"}…
-                          </span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                            r.token_type === "jwt" ? "bg-indigo-500/15 text-indigo-300" : "bg-sky-500/15 text-sky-300"
-                          }`}>{(r.token_type ?? "jwt").toUpperCase()}</span>
-                          <RiskBadge level={r.risk_level} />
-                          <span className="text-xs text-slate-600 dark:text-white/50">
-                            AI: {r.risk_score_pct}% ({r.ai_level_raw})
-                          </span>
-                          <RecBadge rec={r.decision} />
-                          {r.is_attack && (
-                            <span className="text-[10px] text-rose-300 bg-rose-500/10 px-2 py-0.5 rounded-full">
-                              ATTACK
+                      <details key={r.token_id ?? i} className="group px-5 py-3.5">
+                        <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                            <span className="text-xs text-slate-800 dark:text-white/75 truncate max-w-[200px] sm:max-w-xs">
+                              {rule?.email ?? r.token_id?.slice(0, 20) ?? "—"}
                             </span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 ${
+                              r.token_type === "jwt" ? "bg-indigo-500/15 text-indigo-300" : "bg-sky-500/15 text-sky-300"
+                            }`}>{(r.token_type ?? "jwt").toUpperCase()}</span>
+                            <span className="text-xs font-medium text-slate-600 dark:text-white/55 shrink-0">
+                              Rule {ruleScore} → AI {r.risk_score_pct}%
+                            </span>
+                            <RecBadge rec={r.decision} />
+                            {showDisagree && r.agreement && (
+                              <AgreementBadge status={r.agreement.status} label={r.agreement.label} />
+                            )}
+                            <span className="text-[10px] text-slate-500 dark:text-white/25 ml-auto hidden sm:inline group-open:hidden">
+                              Chi tiết ▸
+                            </span>
+                          </div>
+                          {(r.behavior_badges?.length ?? 0) > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {r.behavior_badges!.slice(0, 2).map((b) => (
+                                <BehaviorBadge key={b.id} label={b.label} severity={b.severity} />
+                              ))}
+                            </div>
+                          )}
+                        </summary>
+                        <div className="mt-2 pt-2 border-t border-white/[0.04] space-y-2 text-[11px] text-slate-500 dark:text-white/40">
+                          <p>{r.summary_vi ?? r.explanation?.summary_vi}</p>
+                          {r.explanation?.top_features?.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {r.explanation.top_features.slice(0, 3).map((f, fi) => (
+                                <span key={fi} className={`text-[10px] px-2 py-0.5 rounded-full ${
+                                  f.impact > 0 ? "bg-rose-500/10 text-rose-300/60" : "bg-emerald-500/10 text-emerald-300/60"
+                                }`}>
+                                  {f.feature} {f.impact > 0 ? "↑" : "↓"}{Math.abs(f.impact).toFixed(3)}
+                                </span>
+                              ))}
+                            </div>
                           )}
                         </div>
-                        {/* Explanation */}
-                        <p className="text-[11px] text-slate-600 dark:text-white/40 leading-relaxed">
-                          {r.explanation?.summary}
-                        </p>
-                        {/* SHAP top features */}
-                        {r.explanation?.top_features?.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mt-1">
-                            {r.explanation.top_features.slice(0, 3).map((f, fi) => (
-                              <span key={fi} className={`text-[10px] px-2 py-0.5 rounded-full ${
-                                f.impact > 0 ? "bg-rose-500/10 text-rose-300/70" : "bg-emerald-500/10 text-emerald-300/70"
-                              }`}>
-                                {f.feature} {f.impact > 0 ? "↑" : "↓"}{Math.abs(f.impact).toFixed(3)}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      </details>
                     );
                   })}
                 </div>
