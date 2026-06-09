@@ -1,14 +1,17 @@
 import FloatingCryptoIcons from "./FloatingCryptoIcons";
+import PageBackground from "./PageBackground";
 import { shell } from "../styles/theme";
 
 /**
- * z-0 nền trái · z-8 icon (dưới UI) · z-20 shell login/register.
+ * z-0 nền · z-8 icon (dưới UI) · z-20 shell login/register.
  */
 export default function AuthPageLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className={`ls-auth ${shell.auth}`}>
+      <PageBackground />
+
       <div
-        className={`hidden lg:block absolute inset-y-0 left-0 lg:w-[42%] xl:w-[38%] z-0 pointer-events-none ${shell.authAsideBg}`}
+        className={`hidden lg:block absolute inset-y-0 left-0 lg:w-[42%] xl:w-[38%] z-[1] pointer-events-none ${shell.authAsideBg}`}
         aria-hidden
       />
 

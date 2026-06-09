@@ -8,14 +8,19 @@ const LOGIN_PAGE_KEY = "auth-login";
 import { LockSendLogoHero, LockSendMark } from "../components/LockSendLogo";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import ThemeToggle from "../components/ThemeToggle";
+import LanguageToggle from "../components/LanguageToggle";
 import Card from "../components/ui/Card";
 import Alert from "../components/ui/Alert";
 import AuthPageLayout from "../components/AuthPageLayout";
 import AuthHero from "../components/AuthHero";
+import GoogleSignInButton from "../components/GoogleSignInButton";
+import { isValidAlertEmail } from "../utils/email";
+import { useT, translateError } from "../i18n/context";
 import { shell, inputBase, text, brand, label, btn, linkAccent } from "../styles/theme";
 
 export default function LoginPage() {
-  const { login, isLoading } = useAuth();
+  const t = useT();
+  const { login, loginWithGoogle, isLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string })?.from || "/";
@@ -25,20 +30,44 @@ export default function LoginPage() {
   const [password, setPassword] = useDraftState(LOGIN_PAGE_KEY, "password", "", "memory");
   const [showPassword, setShowPassword] = useDraftState(LOGIN_PAGE_KEY, "showPassword", false);
   const [error, setError] = useState<string | null>(null);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  const handleGoogleLogin = async (credential: string) => {
+    setError(null);
+    setGoogleLoading(true);
+    try {
+      const res = await loginWithGoogle(credential);
+      clearLoginDraft();
+      clearPageDraft("auth-register");
+      navigate(res.email_verified === false ? "/verify-email" : from, { replace: true });
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail ?? t("auth.googleLoginFailed");
+      setError(translateError(t, msg));
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    const email = username.trim().toLowerCase();
+    if (!isValidAlertEmail(email)) {
+      setError(t("auth.emailRequired"));
+      return;
+    }
     try {
-      await login(username, password);
+      const res = await login(email, password);
       clearLoginDraft();
       clearPageDraft("auth-register");
-      navigate(from, { replace: true });
+      navigate(res.email_verified === false ? "/verify-email" : from, { replace: true });
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ?? "Đăng nhập thất bại. Kiểm tra lại email/mật khẩu.";
-      setError(msg);
+          ?.detail ?? t("auth.loginFailed");
+      setError(translateError(t, msg));
     }
   };
 
@@ -51,7 +80,8 @@ export default function LoginPage() {
       </div>
 
       <div className={`ls-auth-panel ${shell.authPanel}`}>
-        <div className="absolute top-4 right-4 z-20">
+        <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+          <LanguageToggle />
           <ThemeToggle />
         </div>
         <div className="w-full max-w-[380px] space-y-7">
@@ -63,18 +93,18 @@ export default function LoginPage() {
           </div>
 
           <Card className="space-y-6" padding="md">
-            <h1 className={`text-lg font-semibold ${text.primary}`}>Đăng nhập</h1>
+            <h1 className={`text-lg font-semibold ${text.primary}`}>{t("auth.login")}</h1>
 
             {error && <Alert tone="error">{error}</Alert>}
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
-                <label className={label}>Email hoặc tên đăng nhập</label>
+                <label className={label}>{t("auth.email")}</label>
                 <input
-                  type="text"
+                  type="email"
                   required
                   autoFocus
-                  autoComplete="username"
+                  autoComplete="email"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="you@example.com"
@@ -83,7 +113,7 @@ export default function LoginPage() {
               </div>
 
               <div className="space-y-1.5">
-                <label className={label}>Mật khẩu</label>
+                <label className={label}>{t("auth.password")}</label>
                 <div className="relative">
                   <input
                     type={showPassword ? "text" : "password"}
@@ -116,18 +146,24 @@ export default function LoginPage() {
 
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || googleLoading}
                 className={`w-full flex items-center justify-center gap-2 mt-1 ${btn.primary}`}
               >
                 {isLoading && <LoadingSpinner size="sm" />}
-                {isLoading ? "Đang đăng nhập..." : "Đăng nhập"}
+                {isLoading ? t("auth.loggingIn") : t("auth.login")}
               </button>
             </form>
 
+            <GoogleSignInButton
+              onSuccess={handleGoogleLogin}
+              onError={() => setError(t("auth.googleLoginFailed"))}
+              disabled={isLoading || googleLoading}
+            />
+
             <p className={`text-center text-[13px] pt-1 ${text.faint}`}>
-              Chưa có tài khoản?{" "}
+              {t("auth.noAccount")}{" "}
               <Link to="/register" className={linkAccent}>
-                Đăng ký
+                {t("auth.register")}
               </Link>
             </p>
           </Card>

@@ -1,11 +1,17 @@
 <!doctype html>
-<html lang="vi">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/locksend-mark.png" sizes="any" />
     <link rel="apple-touch-icon" href="/locksend-logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0b0d12" />
+    <meta name="theme-color" content="#0a0e14" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
     <title>LockSend</title>
     <script>
       (function () {
@@ -19,6 +25,10 @@
         } catch (e) {
           document.documentElement.classList.add("dark");
         }
+        try {
+          var l = localStorage.getItem("locksend-locale");
+          if (l === "en" || l === "vi") document.documentElement.lang = l;
+        } catch (e) {}
       })();
     </script>
     <style>

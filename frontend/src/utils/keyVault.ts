@@ -214,6 +214,11 @@ export async function restoreFromSession(): Promise<UnlockedKeyPairs | null> {
     const keys = _deserializeKeys(new TextDecoder().decode(decrypted));
     _keys = keys;
     resetLockTimer();
+    try {
+      window.dispatchEvent(new Event("ls-vault-unlocked"));
+    } catch {
+      /* non-browser */
+    }
     return keys;
   } catch (e) {
     console.warn("[keyVault] restoreFromSession failed, clearing wrapper:", e);

@@ -19,6 +19,7 @@ import {
 import { getKeys } from "../utils/keyVault";
 import Button from "./ui/Button";
 import Alert from "./ui/Alert";
+import { useT } from "../i18n/context";
 import { inputBase, label, text } from "../styles/theme";
 
 interface Props {
@@ -35,6 +36,7 @@ type ShareRecipient = {
 };
 
 export default function VaultShareDialog({ file, onClose, onShared }: Props) {
+  const t = useT();
   const draftScope = `${VAULT_SHARE_KEY}:${file.file_id}`;
   const [query, setQuery] = useDraftState(draftScope, "query", "");
   const [results, setResults] = useState<
@@ -94,18 +96,18 @@ export default function VaultShareDialog({ file, onClose, onShared }: Props) {
       setQuery("");
       setResults([]);
     } catch {
-      setError("Không lấy được public key của user");
+      setError(t("vault.fetchKeyFailed"));
     }
   }
 
   async function handleShare() {
     const keys = getKeys();
     if (!keys) {
-      setError("Mở khóa keypair trước khi chia sẻ");
+      setError(t("vault.unlockBeforeShare"));
       return;
     }
     if (selected.length === 0) {
-      setError("Chọn ít nhất một người nhận");
+      setError(t("vault.needRecipient"));
       return;
     }
     setLoading(true);
@@ -137,7 +139,7 @@ export default function VaultShareDialog({ file, onClose, onShared }: Props) {
       onShared();
       onClose();
     } catch (e) {
-      setError((e as Error).message ?? "Chia sẻ thất bại");
+      setError((e as Error).message ?? t("vault.shareFailed"));
     } finally {
       setLoading(false);
     }
@@ -147,22 +149,20 @@ export default function VaultShareDialog({ file, onClose, onShared }: Props) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
       <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#12141c] p-5 space-y-4 shadow-xl">
         <h3 className={`text-lg font-semibold ${text.primary}`}>
-          Chia sẻ từ kho
+          {t("vault.shareFromVault")}
         </h3>
         <p className={`text-sm ${text.muted} truncate`}>{file.original_filename}</p>
         {!file.can_share && (
-          <Alert tone="warning">
-            File lớn (chunked) chưa hỗ trợ chia sẻ trực tiếp từ kho.
-          </Alert>
+          <Alert tone="warning">{t("vault.chunkedNoShare")}</Alert>
         )}
 
         <div>
-          <label className={label}>Tìm người nhận</label>
+          <label className={label}>{t("vault.findRecipient")}</label>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className={`w-full mt-1 ${inputBase}`}
-            placeholder="Email hoặc tên…"
+            placeholder={t("vault.searchRecipientPlaceholder")}
             disabled={loading || !file.can_share}
           />
           {results.length > 0 && (
@@ -208,7 +208,7 @@ export default function VaultShareDialog({ file, onClose, onShared }: Props) {
 
         <div className="flex gap-2 pt-1">
           <Button variant="secondary" fullWidth onClick={onClose} disabled={loading}>
-            Hủy
+            {t("common.cancel")}
           </Button>
           <Button
             fullWidth
@@ -216,7 +216,7 @@ export default function VaultShareDialog({ file, onClose, onShared }: Props) {
             disabled={!file.can_share || selected.length === 0}
             onClick={() => void handleShare()}
           >
-            Chia sẻ
+            {t("vault.share")}
           </Button>
         </div>
       </div>

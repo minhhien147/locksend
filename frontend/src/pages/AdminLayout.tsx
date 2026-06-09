@@ -1,11 +1,14 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { useT } from "../i18n/context";
 import { admin, surfaceCardAdmin as surfaceCard, text } from "../styles/theme";
 
 export default function AdminLayout() {
+  const t = useT();
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       <header>
-        <h1 className={`text-2xl font-bold ${text.primary} tracking-tight`}>Admin</h1>
+        <h1 className={`text-2xl font-bold ${text.primary} tracking-tight`}>{t("nav.admin")}</h1>
       </header>
 
       <nav className={`${surfaceCard} p-1.5 inline-flex flex-wrap gap-1`}>
@@ -19,7 +22,7 @@ export default function AdminLayout() {
             }`
           }
         >
-          Người dùng
+          {t("admin.users")}
         </NavLink>
         <NavLink
           to="/admin/token-security"
@@ -31,7 +34,7 @@ export default function AdminLayout() {
             }`
           }
         >
-          Token Security
+          {t("admin.tokenSecurityNav")}
         </NavLink>
         <NavLink
           to="/admin/stress"
@@ -43,7 +46,7 @@ export default function AdminLayout() {
             }`
           }
         >
-          Stress test
+          {t("admin.stressTest")}
         </NavLink>
       </nav>
 

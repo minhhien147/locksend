@@ -16,7 +16,21 @@
 import axios from "axios";
 import type { EncryptionMetadata, ChunkedEncryptionMetadata } from "./crypto";
 
-/** Dev: .env.local VITE_API_URL hoặc localhost. Prod (Vercel): bắt buộc set VITE_API_URL rồi redeploy. */
+/** Lấy `detail` từ FastAPI (503/422…) thay vì message axios mặc định. */
+export function apiErrorDetail(err: unknown, fallback: string): string {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response
+    ?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((d) => (typeof d === "object" && d && "msg" in d ? String(d.msg) : ""))
+      .filter(Boolean);
+    if (msgs.length) return msgs.join(", ");
+  }
+  return (err as Error)?.message ?? fallback;
+}
+
+/** Dev: .env.local VITE_API_URL=/api. Prod (Railway): bắt buộc set VITE_API_URL trỏ backend. */
 function resolveApiBaseUrl(): string {
   const fromEnv = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
   if (fromEnv) return fromEnv.replace(/\/$/, "");
@@ -29,8 +43,8 @@ const BASE_URL = resolveApiBaseUrl();
 
 if (import.meta.env.PROD && !BASE_URL) {
   console.error(
-    "[LockSend] Thiếu VITE_API_URL. Vercel → Settings → Environment Variables → " +
-      "VITE_API_URL = URL Railway backend (vd. https://locksend-be-production.up.railway.app), rồi Redeploy."
+    "[LockSend] Thiếu VITE_API_URL. Railway (frontend service) → Variables → " +
+      "VITE_API_URL = URL backend (vd. https://locksend-be-production.up.railway.app), rồi Redeploy."
   );
 }
 
@@ -150,6 +164,19 @@ export interface TokenResponse {
   email: string;
   display_name: string | null;
   role: string;
+  email_verified?: boolean;
+}
+
+export interface VerificationStatus {
+  email_verified: boolean;
+  email: string | null;
+  verification_required: boolean;
+  resend_cooldown_sec: number;
+}
+
+export async function fetchVerificationStatus(): Promise<VerificationStatus> {
+  const res = await api.get<VerificationStatus>("/auth/me/verification-status");
+  return res.data;
 }
 
 /**
@@ -179,6 +206,15 @@ export const authApi = {
     return res.data;
   },
 
+  async loginWithGoogle(credential: string): Promise<TokenResponse> {
+    const res = await axios.post<TokenResponse>(
+      `${BASE_URL}/auth/google`,
+      { credential },
+      { withCredentials: true }
+    );
+    return res.data;
+  },
+
   async refresh(): Promise<TokenResponse> {
     const res = await axios.post<TokenResponse>(
       `${BASE_URL}/auth/refresh`,
@@ -186,6 +222,15 @@ export const authApi = {
       { withCredentials: true }
     );
     return res.data;
+  },
+
+  async verifyEmail(code: string): Promise<TokenResponse> {
+    const res = await api.post<TokenResponse>("/auth/verify-email", { code });
+    return res.data;
+  },
+
+  async resendVerification(): Promise<void> {
+    await api.post("/auth/resend-verification", {});
   },
 
   async logout(): Promise<void> {
@@ -196,6 +241,12 @@ export const authApi = {
       });
   },
 };
+
+/** Cập nhật email nhận cảnh báo bảo mật. */
+export async function updateProfileEmailApi(email: string): Promise<TokenResponse> {
+  const res = await api.patch<TokenResponse>("/auth/me/email", { email });
+  return res.data;
+}
 
 /** Đổi mật khẩu (cần access token; dùng instance `api` để gửi Bearer). */
 export async function changePasswordApi(
@@ -546,12 +597,22 @@ export async function fetchMyEncryptedKeyBlob(): Promise<{
   has_keys: boolean;
   public_key_x25519?: string;
   public_key_ed25519?: string;
+  keypair_expires_at?: string | null;
+  keypair_days_left?: number | null;
+  keypair_expired?: boolean;
+  keypair_expiring_soon?: boolean;
+  key_version?: number;
 }> {
   const res = await api.get<{
     encrypted_key_blob: string | null;
     has_keys: boolean;
     public_key_x25519?: string;
     public_key_ed25519?: string;
+    keypair_expires_at?: string | null;
+    keypair_days_left?: number | null;
+    keypair_expired?: boolean;
+    keypair_expiring_soon?: boolean;
+    key_version?: number;
   }>("/keys/my-encrypted-blob");
   return res.data;
 }
@@ -724,6 +785,83 @@ export async function refreshSasUrl(fileId: string): Promise<FreshSasResponse> {
 /** Revoke quyền truy cập của một recipient */
 export async function revokeRecipient(fileId: string, recipientId: string): Promise<void> {
   await api.post(`/files/${fileId}/revoke/${recipientId}`, {});
+}
+
+// ── Integrations (VirusTotal + Gemini) ───────────────────────────────────────
+
+export interface IntegrationsStatus {
+  virustotal: boolean;
+  gemini: boolean;
+  gemini_model: string | null;
+}
+
+export interface VirusTotalHashResult {
+  sha256: string;
+  known: boolean;
+  reputation: "clean" | "suspicious" | "malicious" | "unknown";
+  malicious: number;
+  suspicious: number;
+  harmless: number;
+  undetected: number;
+  total_engines: number;
+  message: string;
+  permalink: string | null;
+}
+
+export async function getIntegrationsStatus(): Promise<IntegrationsStatus> {
+  const res = await api.get<IntegrationsStatus>("/integrations/status");
+  return res.data;
+}
+
+export async function checkHashVirusTotal(sha256: string): Promise<VirusTotalHashResult> {
+  const res = await api.post<VirusTotalHashResult>("/integrations/virustotal/hash", {
+    sha256,
+  });
+  return res.data;
+}
+
+export async function sendAssistantMessage(
+  message: string,
+  history: { role: "user" | "assistant"; content: string }[]
+): Promise<string> {
+  const res = await api.post<{ reply: string }>("/integrations/assistant/chat", {
+    message,
+    history,
+  });
+  return res.data.reply;
+}
+
+// ── Security alerts (owner) ───────────────────────────────────────────────────
+
+export interface UserSecurityAlert {
+  id: string;
+  alert_type: string;
+  file_id: string | null;
+  file_name: string | null;
+  title_vi: string;
+  message_vi: string;
+  detail_json: Record<string, unknown> | null;
+  is_read: boolean;
+  created_at: string;
+}
+
+export interface UserSecurityAlertsResponse {
+  alerts: UserSecurityAlert[];
+  unread_count: number;
+}
+
+export async function fetchSecurityAlerts(
+  limit = 20,
+  unreadOnly = false
+): Promise<UserSecurityAlertsResponse> {
+  const res = await api.get<UserSecurityAlertsResponse>("/auth/me/security-alerts", {
+    params: { limit, unread_only: unreadOnly },
+  });
+  return res.data;
+}
+
+export async function markSecurityAlertsRead(alertIds: string[]): Promise<void> {
+  await api.patch("/auth/me/security-alerts/read", { alert_ids: alertIds });
 }
 
 export default api;

@@ -3,10 +3,14 @@ import { BrowserRouter, Routes, Route, NavLink, Navigate, Link } from "react-rou
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import ThemeToggle from "./components/ThemeToggle";
+import LanguageToggle from "./components/LanguageToggle";
+import { LanguageProvider } from "./i18n/context";
+import { useT } from "./i18n/context";
 import { shell, header, nav, text, brand } from "./styles/theme";
 import ProtectedRoute from "./components/ProtectedRoute";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import VerifyEmailPage from "./pages/VerifyEmailPage";
 import UploadPage from "./pages/UploadPage";
 import DownloadPage from "./pages/DownloadPage";
 import KeyManagement from "./pages/KeyManagement";
@@ -15,9 +19,12 @@ import AdminLayout from "./pages/AdminLayout";
 import AdminUsersPage from "./pages/AdminUsersPage";
 import AdminTokenSecurityPage from "./pages/AdminTokenSecurityPage";
 import ProfilePage from "./pages/ProfilePage";
+import AssistantChatWidget from "./components/AssistantChatWidget";
+import SecurityAlertsBanner from "./components/SecurityAlertsBanner";
 import { LockSendMark } from "./components/LockSendLogo";
 import { useKeySync } from "./hooks/useKeySync";
 import FloatingCryptoIcons from "./components/FloatingCryptoIcons";
+import PageBackground from "./components/PageBackground";
 import KeyUnlockModal from "./components/KeyUnlockModal";
 import { badge } from "./styles/theme";
 import {
@@ -31,11 +38,20 @@ import {
 export default function App() {
   return (
     <ThemeProvider>
+    <LanguageProvider>
     <AuthProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route
+            path="/verify-email"
+            element={
+              <ProtectedRoute allowUnverified>
+                <VerifyEmailPage />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/*"
             element={
@@ -47,6 +63,7 @@ export default function App() {
         </Routes>
       </BrowserRouter>
     </AuthProvider>
+    </LanguageProvider>
     </ThemeProvider>
   );
 }
@@ -59,6 +76,7 @@ const ROLE_CONFIG: Record<string, { label: string; badgeClass: string }> = {
 
 function AppShell() {
   const { user, logout } = useAuth();
+  const t = useT();
   useKeySync(!!user && user.role !== "recipient");
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const role = user?.role ?? "owner";
@@ -103,6 +121,7 @@ function AppShell() {
 
   return (
     <div className={`${shell.page} relative`}>
+      <PageBackground />
       <FloatingCryptoIcons />
 
       {/* Key unlock modal — shown on F5 (wrapper gone) or inactivity timeout */}
@@ -113,7 +132,7 @@ function AppShell() {
         />
       )}
 
-      <div className="relative z-20 flex flex-col flex-1 min-h-screen w-full">
+      <div className="relative z-10 flex flex-col flex-1 min-h-screen w-full">
       {/* ── Top navigation bar ── */}
       <header className={header.bar}>
         <div className="max-w-6xl mx-auto px-5 h-14 flex items-center justify-between gap-4">
@@ -128,20 +147,21 @@ function AppShell() {
 
           {/* Nav links */}
           <nav className="flex items-center gap-0.5 flex-1 justify-center">
-            {!isRecipient && <TopNavItem to="/" label="Upload" icon="upload" />}
-            <TopNavItem to="/download" label="Download" icon="download" />
-            <TopNavItem to="/keys" label="Keys" icon="key" />
-            <TopNavItem to="/profile" label="Hồ sơ" icon="profile" />
-            {isAdmin && <TopNavItem to="/admin" label="Admin" icon="admin" danger />}
+            {!isRecipient && <TopNavItem to="/" label={t("nav.upload")} icon="upload" />}
+            <TopNavItem to="/download" label={t("nav.download")} icon="download" />
+            <TopNavItem to="/keys" label={t("nav.keys")} icon="key" />
+            <TopNavItem to="/profile" label={t("nav.profile")} icon="profile" />
+            {isAdmin && <TopNavItem to="/admin" label={t("nav.admin")} icon="admin" danger />}
           </nav>
 
           {/* User menu */}
           <div className="flex items-center gap-2 shrink-0">
+            <LanguageToggle />
             <ThemeToggle />
             <div className={`flex items-center gap-2.5 pl-3 border-l ${header.divider}`}>
               <Link
                 to="/profile"
-                title="Hồ sơ"
+                title={t("nav.profile")}
                 className="flex items-center gap-2.5 rounded-lg pr-1 -ml-1 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition"
               >
                 <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-[11px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
@@ -158,7 +178,7 @@ function AppShell() {
               </Link>
               <button
                 onClick={() => void logout()}
-                title="Sign out"
+                title={t("common.signOut")}
                 className={`ml-1 p-1.5 rounded-lg transition ${text.faint} hover:text-rose-600 hover:bg-rose-50 dark:hover:text-rose-400 dark:hover:bg-rose-400/10`}
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -172,6 +192,7 @@ function AppShell() {
 
       {/* ── Page content ── */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-5 py-8">
+        <SecurityAlertsBanner />
         <Routes>
           <Route path="/" element={isRecipient ? <DownloadPage /> : <UploadPage />} />
           <Route path="/download" element={<DownloadPage />} />
@@ -180,6 +201,7 @@ function AppShell() {
           <Route path="/history" element={<Navigate to="/profile?tab=history" replace />} />
           <Route path="/vault" element={<Navigate to="/profile" replace />} />
           <Route path="/keys" element={<KeyManagement />} />
+          <Route path="/help" element={<Navigate to="/" replace />} />
           <Route path="/stress-test" element={<Navigate to="/admin/stress" replace />} />
           <Route
             path="/admin/*"
@@ -202,6 +224,8 @@ function AppShell() {
       <footer className={header.footer}>
         <p className={`text-[11px] ${text.faint}`}>FPT University — Information Security</p>
       </footer>
+
+      <AssistantChatWidget />
       </div>
     </div>
   );

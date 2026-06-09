@@ -6,6 +6,7 @@ const ADMIN_TOKEN_PAGE_KEY = "admin-token-security";
 import PageLoader, { LoadingSpinner } from "../components/LoadingSpinner";
 
 import { admin, surfaceCard } from "../styles/theme";
+import { useT } from "../i18n/context";
 
 const RISK_BADGE: Record<string, string> = {
   low:
@@ -212,6 +213,7 @@ interface TopFileRow {
   ai_alerts: number;
   suspicious: boolean;
   owner_email?: string | null;
+  owner_email_valid?: boolean;
   owner_id?: string | null;
   storage_mode?: string | null;
 }
@@ -237,6 +239,7 @@ interface FileDetailData {
   file_id: string;
   file_name: string;
   owner_email?: string | null;
+  owner_email_valid?: boolean;
   owner_id?: string | null;
   storage_mode?: string | null;
   file_size_bytes: number;
@@ -284,6 +287,7 @@ function MiniBarChart({
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function AdminTokenSecurityPage() {
+  const t = useT();
   const [activeTab, setActiveTab] = useDraftState<Tab>(
     ADMIN_TOKEN_PAGE_KEY,
     "activeTab",
@@ -319,6 +323,7 @@ export default function AdminTokenSecurityPage() {
   const [fileActivityLoading, setFileActivityLoading] = useState(false);
   const [fileDetail, setFileDetail] = useState<FileDetailData | null>(null);
   const [fileDetailLoading, setFileDetailLoading] = useState(false);
+  const [notifyOwnerBusy, setNotifyOwnerBusy] = useState(false);
 
   const flash = (type: "ok" | "err", msg: string) => {
     setFeedback({ type, msg });
@@ -335,7 +340,7 @@ export default function AdminTokenSecurityPage() {
       );
       setOverview(res.data.overview);
     } catch {
-      flash("err", "Không tải được dữ liệu token security");
+      flash("err", t("admin.tokenSecurity.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -351,7 +356,7 @@ export default function AdminTokenSecurityPage() {
       const res = await api.get<AiHealth>("/auth/admin/token-security/ai/health");
       setAiHealth(res.data);
     } catch {
-      setAiHealth({ ready: false, error: "Không kết nối được backend" });
+      setAiHealth({ ready: false, error: t("admin.tokenSecurity.backendFailed") });
     } finally {
       setAiHealthLoading(false);
     }
@@ -383,7 +388,7 @@ export default function AdminTokenSecurityPage() {
       const res = await api.get<TrendData>("/auth/admin/token-security/ai/trends?days=7");
       setTrends(res.data);
     } catch {
-      flash("err", "Không tải được dữ liệu trend");
+      flash("err", t("admin.tokenSecurity.trendFailed"));
     } finally {
       setTrendsLoading(false);
     }
@@ -401,7 +406,7 @@ export default function AdminTokenSecurityPage() {
       );
       setFileActivity(res.data);
     } catch {
-      flash("err", "Không tải được dữ liệu file activity");
+      flash("err", t("admin.tokenSecurity.fileActivityFailed"));
     } finally {
       setFileActivityLoading(false);
     }
@@ -415,10 +420,34 @@ export default function AdminTokenSecurityPage() {
       );
       setFileDetail(res.data);
     } catch {
-      flash("err", "Không tải được chi tiết file");
+      flash("err", t("admin.tokenSecurity.fileDetailFailed"));
       setFileDetail(null);
     } finally {
       setFileDetailLoading(false);
+    }
+  }, []);
+
+  const notifyFileOwner = useCallback(async (fileId: string) => {
+    setNotifyOwnerBusy(true);
+    try {
+      const res = await api.post<{
+        owner_email?: string;
+        email_sent?: boolean;
+      }>(`/auth/admin/token-security/files/${fileId}/notify-owner`);
+      const email = res.data.owner_email;
+      flash(
+        "ok",
+        res.data.email_sent && email
+          ? t("admin.notifySentEmail", { email })
+          : t("admin.notifySent")
+      );
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        t("admin.notifyFailed");
+      flash("err", msg);
+    } finally {
+      setNotifyOwnerBusy(false);
     }
   }, []);
 
@@ -439,7 +468,7 @@ export default function AdminTokenSecurityPage() {
       await api.post(`/auth/admin/token-security/alerts/${id}/read`);
       void loadAlerts();
     } catch {
-      flash("err", "Không cập nhật được cảnh báo");
+      flash("err", t("admin.tokenSecurity.alertUpdateFailed"));
     }
   };
 
@@ -448,7 +477,7 @@ export default function AdminTokenSecurityPage() {
       await api.post("/auth/admin/token-security/alerts/read-all");
       void loadAlerts();
     } catch {
-      flash("err", "Không cập nhật được cảnh báo");
+      flash("err", t("admin.tokenSecurity.alertUpdateFailed"));
     }
   };
 
@@ -462,7 +491,7 @@ export default function AdminTokenSecurityPage() {
       );
       setTokens(res.data.tokens);
     } catch {
-      flash("err", "Không tải được danh sách token");
+      flash("err", t("admin.tokenSecurity.tokenListFailed"));
     } finally {
       setTokensLoading(false);
     }
@@ -521,9 +550,9 @@ export default function AdminTokenSecurityPage() {
       setAiRuleMetrics(res.data.rule_metrics ?? []);
       if (res.data.ai_error) setAiError(res.data.ai_error);
       setActiveTab("ai-report");
-      flash("ok", `LockSend AI đã phân tích ${res.data.analyzed} token`);
+      flash("ok", t("admin.tokenSecurity.aiAnalyzed", { count: res.data.analyzed }));
     } catch {
-      setAiError("Phân tích AI thất bại — kiểm tra model đã train chưa");
+      setAiError(t("admin.tokenSecurity.aiAnalyzeFailed"));
     } finally {
       setAnalyzing(false);
     }
@@ -532,17 +561,17 @@ export default function AdminTokenSecurityPage() {
   // ── Actions ─────────────────────────────────────────────────────────────────
 
   const revokeJwt = async (userId: string, email: string | null) => {
-    if (!confirm(`Thu hồi toàn bộ phiên JWT của "${email ?? userId}"?`)) return;
+    if (!confirm(t("admin.tokenSecurity.revokeJwtConfirm", { email: email ?? userId }))) return;
     setBusyId(userId);
     try {
       const res = await api.post<{ revoked_sessions: number }>(
         `/auth/admin/token-security/revoke/jwt/${userId}`,
         { reason: "Admin manual revoke" }
       );
-      flash("ok", `Đã thu hồi ${res.data.revoked_sessions} phiên`);
+      flash("ok", t("admin.tokenSecurity.revokeJwtOk", { count: res.data.revoked_sessions }));
       void loadOverview();
     } catch {
-      flash("err", "Thu hồi JWT thất bại");
+      flash("err", t("admin.tokenSecurity.revokeJwtFailed"));
     } finally {
       setBusyId(null);
     }
@@ -555,17 +584,17 @@ export default function AdminTokenSecurityPage() {
       await api.post(`/auth/admin/token-security/revoke/sas/${tokenId}`, {
         reason: "Admin manual revoke",
       });
-      flash("ok", "SAS token đã bị thu hồi");
+      flash("ok", t("admin.tokenSecurity.revokeSasOk"));
       void loadTokens();
     } catch {
-      flash("err", "Thu hồi SAS thất bại");
+      flash("err", t("admin.tokenSecurity.revokeSasFailed"));
     } finally {
       setBusyId(null);
     }
   };
 
   const triggerAutoRevoke = async () => {
-    if (!confirm("Tự động thu hồi tất cả token có risk score cao? Hành động không thể hoàn tác.")) return;
+    if (!confirm(t("admin.tokenSecurity.autoRevokeConfirm"))) return;
     try {
       const res = await api.post<{ revoked_jwt_sessions: number; revoked_sas_tokens: number }>(
         "/auth/admin/token-security/auto-revoke"
@@ -573,7 +602,7 @@ export default function AdminTokenSecurityPage() {
       flash("ok", `Auto-revoke: ${res.data.revoked_jwt_sessions} JWT, ${res.data.revoked_sas_tokens} SAS`);
       void loadOverview();
     } catch {
-      flash("err", "Auto-revoke thất bại");
+      flash("err", t("admin.tokenSecurity.autoRevokeFailed"));
     }
   };
 
@@ -582,16 +611,19 @@ export default function AdminTokenSecurityPage() {
       const res = await api.post<{ deleted_sas_records: number; deleted_access_logs: number }>(
         "/auth/admin/token-security/cleanup"
       );
-      flash("ok", `Đã xóa ${res.data.deleted_sas_records} SAS records, ${res.data.deleted_access_logs} access logs cũ`);
+      flash("ok", t("admin.tokenSecurity.cleanupOk", {
+        sas: res.data.deleted_sas_records,
+        logs: res.data.deleted_access_logs,
+      }));
     } catch {
-      flash("err", "Cleanup thất bại");
+      flash("err", t("admin.tokenSecurity.cleanupFailed"));
     }
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
   if (loading && !overview) {
-    return <PageLoader title="Đang tải Token Security…" />;
+    return <PageLoader title={t("admin.tokenSecurity.loading")} />;
   }
 
   const topRisk = overview?.top_risk_tokens ?? [];
@@ -604,9 +636,7 @@ export default function AdminTokenSecurityPage() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
           <h2 className={admin.title}>Token Security</h2>
-          <p className={admin.desc}>
-            LockSend AI · Rule engine · Auto-revoke · Không truy cập plaintext
-          </p>
+          <p className={admin.desc}>{t("admin.tokenSecurity.subtitle")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -615,7 +645,7 @@ export default function AdminTokenSecurityPage() {
             disabled={loading}
             className={`${admin.btnGhost} disabled:opacity-40`}
           >
-            Làm mới
+            {t("admin.refresh")}
           </button>
           <button type="button" onClick={triggerAutoRevoke}
             className="px-3 py-2 rounded-xl border border-rose-500/30 text-sm text-rose-400 hover:bg-rose-500/10 transition">
@@ -632,14 +662,14 @@ export default function AdminTokenSecurityPage() {
         <div className={`${surfaceCard} px-5 py-4 border-amber-500/20`}>
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <span className="text-sm font-semibold text-amber-300">
-              Cảnh báo AI realtime ({unreadAlerts})
+              {t("admin.tokenSecurity.realtimeAlerts", { count: unreadAlerts })}
             </span>
             <button
               type="button"
               onClick={() => void markAllAlertsRead()}
               className="ml-auto text-[11px] text-slate-400 hover:text-white"
             >
-              Đánh dấu đã đọc
+              {t("admin.tokenSecurity.markAllRead")}
             </button>
           </div>
           <ul className="space-y-2 max-h-48 overflow-y-auto">
@@ -676,7 +706,7 @@ export default function AdminTokenSecurityPage() {
                   onClick={() => void markAlertRead(a.id)}
                   className="text-[10px] text-slate-500 hover:text-white ml-auto"
                 >
-                  Đã đọc
+                  {t("admin.tokenSecurity.markRead")}
                 </button>
               </li>
             ))}
@@ -710,7 +740,7 @@ export default function AdminTokenSecurityPage() {
             <span className="text-xs text-slate-600 dark:text-white/35">
               {aiReady
                 ? `v${aiHealth.version ?? "?"} · ROC-AUC ${((aiHealth.metrics?.roc_auc ?? 0) * 100).toFixed(1)}%`
-                : "model chưa sẵn sàng"}
+                : t("admin.tokenSecurity.modelNotReady")}
             </span>
           )}
         </div>
@@ -720,7 +750,9 @@ export default function AdminTokenSecurityPage() {
         {/* Rule engine */}
         <span className="text-sm font-medium text-indigo-700 dark:text-indigo-300">● Rule engine</span>
         <span className="text-xs text-slate-500 dark:text-white/30">
-          Ngưỡng auto-revoke: {overview?.config.auto_revoke_score_threshold ?? 80}
+          {t("admin.tokenSecurity.autoRevokeThreshold", {
+            score: overview?.config.auto_revoke_score_threshold ?? 80,
+          })}
         </span>
 
         {/* Hint nếu AI chưa sẵn */}
@@ -750,20 +782,20 @@ export default function AdminTokenSecurityPage() {
 
       {/* Tabs */}
       <div className={`${surfaceCard} p-1.5 inline-flex gap-1`}>
-        {(["overview", "tokens", "ai-report", "trends", "files"] as Tab[]).map((t) => (
-          <button key={t} type="button" onClick={() => setActiveTab(t)}
+        {(["overview", "tokens", "ai-report", "trends", "files"] as Tab[]).map((tabId) => (
+          <button key={tabId} type="button" onClick={() => setActiveTab(tabId)}
             className={`px-4 py-2 rounded-xl text-[13px] font-medium transition ${
-              activeTab === t ? admin.tabActive : admin.tabInactive
+              activeTab === tabId ? admin.tabActive : admin.tabInactive
             }`}>
-            {t === "overview"
-              ? "Overview"
-              : t === "tokens"
-                ? "Token List"
-                : t === "ai-report"
-                  ? "AI Report"
-                  : t === "trends"
-                    ? "Trend"
-                    : "File Activity"}
+            {tabId === "overview"
+              ? t("admin.tokenSecurity.tabOverview")
+              : tabId === "tokens"
+                ? t("admin.tokenSecurity.tabTokens")
+                : tabId === "ai-report"
+                  ? t("admin.tokenSecurity.tabAiReport")
+                  : tabId === "trends"
+                    ? t("admin.tokenSecurity.tabTrends")
+                    : t("admin.tokenSecurity.tabFiles")}
           </button>
         ))}
       </div>
@@ -817,7 +849,9 @@ export default function AdminTokenSecurityPage() {
           {overview.risk_summary.critical_tokens > 0 && (
             <div className={`${surfaceCard} p-4 border-rose-500/20`}>
               <p className="text-xs text-rose-400 font-medium">
-                ⚠ {overview.risk_summary.critical_tokens} token CRITICAL — khuyến nghị revoke ngay
+                {t("admin.tokenSecurity.criticalTokens", {
+                  count: overview.risk_summary.critical_tokens,
+                })}
               </p>
             </div>
           )}
@@ -852,7 +886,7 @@ export default function AdminTokenSecurityPage() {
           {/* Top risk */}
           {topRisk.length > 0 && (
             <div className={`${surfaceCard} p-5`}>
-              <h3 className={`${admin.sectionTitle} mb-3`}>Top rủi ro (rule engine)</h3>
+              <h3 className={`${admin.sectionTitle} mb-3`}>{t("admin.tokenSecurity.topRisk")}</h3>
               <ul className="space-y-2">
                 {topRisk.slice(0, 5).map((t) => (
                   <li key={t.token_id} className="flex items-center gap-2 text-xs text-slate-700 dark:text-white/55">
@@ -868,14 +902,14 @@ export default function AdminTokenSecurityPage() {
 
           {/* AI Analyze button */}
           <div className={`${surfaceCard} p-5`}>
-            <h3 className={`${admin.sectionTitle} mb-2`}>Phân tích bằng LockSend AI</h3>
+            <h3 className={`${admin.sectionTitle} mb-2`}>{t("admin.tokenSecurity.aiAnalyzeTitle")}</h3>
             <p className="text-xs text-slate-600 dark:text-white/35 mb-4">
-              Random Forest (CIC-IDS2017) · SHAP explanation · Top 20 token theo risk score
+              {t("admin.tokenSecurity.aiAnalyzeDesc")}
               {!aiReady && (
                 <span className="text-amber-300/60 ml-2">
                   — {aiHealth?.mode === "remote"
-                    ? (aiHealth.error ?? aiHealth.hint ?? "AI remote chưa kết nối được")
-                    : (aiHealth?.hint ?? "model chưa sẵn sàng — set LOCKSEND_AI_URL trên Railway BE")}
+                    ? (aiHealth.error ?? aiHealth.hint ?? t("admin.tokenSecurity.aiRemoteNotConnected"))
+                    : (aiHealth?.hint ?? t("admin.tokenSecurity.aiNotReadyHint"))}
                 </span>
               )}
             </p>
@@ -886,7 +920,7 @@ export default function AdminTokenSecurityPage() {
               className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 disabled:bg-white/10 text-sm font-medium text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {analyzing ? <LoadingSpinner size="sm" /> : null}
-              {analyzing ? "Đang phân tích AI…" : "Chạy LockSend AI"}
+              {analyzing ? t("admin.tokenSecurity.analyzing") : t("admin.tokenSecurity.runAi")}
             </button>
           </div>
         </div>
@@ -910,7 +944,7 @@ export default function AdminTokenSecurityPage() {
           <div className={`${surfaceCard} overflow-hidden`}>
             {!tokens.length ? (
               <p className="px-5 py-10 text-sm text-slate-500 dark:text-white/30 text-center">
-                {tokensLoading ? "Đang tải…" : "Không có token nào"}
+                {tokensLoading ? t("common.loading") : t("admin.tokenSecurity.noTokens")}
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -923,7 +957,7 @@ export default function AdminTokenSecurityPage() {
                       <th className="px-3 py-3 font-medium">IPs</th>
                       <th className="px-3 py-3 font-medium">Age (h)</th>
                       <th className="px-3 py-3 font-medium">Rec</th>
-                      <th className="px-4 py-3 font-medium text-right">Hành động</th>
+                      <th className="px-4 py-3 font-medium text-right">{t("admin.tokenSecurity.colActions")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -988,24 +1022,24 @@ export default function AdminTokenSecurityPage() {
             <>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
-                  { label: "Truy cập token", value: trends.totals.access_events, color: "text-violet-400" },
-                  { label: "Cảnh báo AI", value: trends.totals.ai_alerts, color: "text-amber-400" },
+                  { label: t("admin.tokenSecurity.trendTokenAccess"), value: trends.totals.access_events, color: "text-violet-400" },
+                  { label: t("admin.tokenSecurity.trendAiAlerts"), value: trends.totals.ai_alerts, color: "text-amber-400" },
                   { label: "Score AI ≥50%", value: trends.totals.ai_high_scores, color: "text-rose-400" },
                   { label: "Rule ≠ AI", value: trends.totals.rule_ai_disagree, color: "text-orange-400" },
                 ].map(({ label, value, color }) => (
                   <div key={label} className={`${surfaceCard} p-4 text-center`}>
                     <p className={`text-2xl font-bold ${color}`}>{value}</p>
                     <p className="text-[11px] text-slate-600 dark:text-white/35 mt-1">{label}</p>
-                    <p className="text-[10px] text-slate-500 dark:text-white/25">{trends.days} ngày</p>
+                    <p className="text-[10px] text-slate-500 dark:text-white/25">{t("admin.tokenSecurity.days", { count: trends.days })}</p>
                   </div>
                 ))}
               </div>
               <div className="grid sm:grid-cols-2 gap-4">
                 {[
-                  { title: "Truy cập token / ngày", data: trends.access_events, color: "bg-violet-500/70" },
-                  { title: "Cảnh báo AI / ngày", data: trends.ai_alerts, color: "bg-amber-500/70" },
-                  { title: "AI score cao / ngày", data: trends.ai_high_scores, color: "bg-rose-500/70" },
-                  { title: "Rule ≠ AI / ngày", data: trends.rule_ai_disagree, color: "bg-orange-500/70" },
+                  { title: t("admin.tokenSecurity.chartTokenPerDay"), data: trends.access_events, color: "bg-violet-500/70" },
+                  { title: t("admin.tokenSecurity.chartAiAlertsPerDay"), data: trends.ai_alerts, color: "bg-amber-500/70" },
+                  { title: t("admin.tokenSecurity.chartAiHighPerDay"), data: trends.ai_high_scores, color: "bg-rose-500/70" },
+                  { title: t("admin.tokenSecurity.chartRuleDisagreePerDay"), data: trends.rule_ai_disagree, color: "bg-orange-500/70" },
                 ].map(({ title, data, color }) => (
                   <div key={title} className={`${surfaceCard} p-5`}>
                     <h4 className="text-xs font-semibold text-slate-600 dark:text-white/50 mb-4">{title}</h4>
@@ -1030,21 +1064,21 @@ export default function AdminTokenSecurityPage() {
                 {[
                   { label: "Upload", value: fileActivity.summary.uploads, color: "text-indigo-400" },
                   { label: "Download", value: fileActivity.summary.downloads, color: "text-sky-400" },
-                  { label: "File được tải", value: fileActivity.summary.unique_files_downloaded, color: "text-violet-400" },
-                  { label: "File rủi ro", value: fileActivity.summary.suspicious_files, color: "text-rose-400" },
+                  { label: t("admin.tokenSecurity.filesDownloaded"), value: fileActivity.summary.unique_files_downloaded, color: "text-violet-400" },
+                  { label: t("admin.tokenSecurity.suspiciousFiles"), value: fileActivity.summary.suspicious_files, color: "text-rose-400" },
                 ].map(({ label, value, color }) => (
                   <div key={label} className={`${surfaceCard} p-4 text-center`}>
                     <p className={`text-2xl font-bold ${color}`}>{value}</p>
                     <p className="text-[11px] text-slate-600 dark:text-white/35 mt-1">{label}</p>
-                    <p className="text-[10px] text-slate-500 dark:text-white/25">{fileActivity.days} ngày</p>
+                    <p className="text-[10px] text-slate-500 dark:text-white/25">{t("admin.tokenSecurity.days", { count: fileActivity.days })}</p>
                   </div>
                 ))}
               </div>
 
               <div className="grid sm:grid-cols-2 gap-4">
                 {[
-                  { title: "Upload / ngày", data: fileActivity.trend.uploads_per_day, color: "bg-indigo-500/70" },
-                  { title: "Download / ngày", data: fileActivity.trend.downloads_per_day, color: "bg-sky-500/70" },
+                  { title: t("admin.tokenSecurity.chartUploadPerDay"), data: fileActivity.trend.uploads_per_day, color: "bg-indigo-500/70" },
+                  { title: t("admin.tokenSecurity.chartDownloadPerDay"), data: fileActivity.trend.downloads_per_day, color: "bg-sky-500/70" },
                 ].map(({ title, data, color }) => (
                   <div key={title} className={`${surfaceCard} p-5`}>
                     <h4 className="text-xs font-semibold text-slate-600 dark:text-white/50 mb-4">{title}</h4>
@@ -1056,7 +1090,7 @@ export default function AdminTokenSecurityPage() {
               {fileActivity.top_file_trends.length > 0 && (
                 <div className={`${surfaceCard} p-5`}>
                   <h4 className="text-xs font-semibold text-slate-600 dark:text-white/50 mb-4">
-                    Top file — download / ngày
+                    {t("admin.tokenSecurity.topFileTrend")}
                   </h4>
                   <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {fileActivity.top_file_trends.map((f) => (
@@ -1082,9 +1116,9 @@ export default function AdminTokenSecurityPage() {
 
               <div className={`${surfaceCard} overflow-hidden`}>
                 <div className="px-5 py-3 border-b border-slate-200/10 flex items-center justify-between">
-                  <h3 className={admin.sectionTitle}>Top file theo lượt tải</h3>
+                  <h3 className={admin.sectionTitle}>{t("admin.tokenSecurity.topFilesByDl")}</h3>
                   <button type="button" onClick={() => void loadFileActivity()} className={admin.btnGhost}>
-                    Làm mới
+                    {t("admin.refresh")}
                   </button>
                 </div>
                 <div className="overflow-x-auto">
@@ -1098,13 +1132,14 @@ export default function AdminTokenSecurityPage() {
                         <th className="px-4 py-2 font-medium text-right">SAS</th>
                         <th className="px-4 py-2 font-medium text-right">AI</th>
                         <th className="px-4 py-2 font-medium">Risk</th>
+                        <th className="px-4 py-2 font-medium"> </th>
                       </tr>
                     </thead>
                     <tbody>
                       {fileActivity.top_files.length === 0 && (
                         <tr>
-                          <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                            Chưa có download trong {fileActivity.days} ngày
+                          <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                            {t("admin.tokenSecurity.noDownloadsInDays", { days: fileActivity.days })}
                           </td>
                         </tr>
                       )}
@@ -1128,7 +1163,14 @@ export default function AdminTokenSecurityPage() {
                             )}
                           </td>
                           <td className="px-4 py-2.5 text-slate-600 dark:text-white/45 truncate max-w-[140px]">
-                            {f.owner_email ?? "—"}
+                            <span className={f.owner_email_valid === false ? "text-amber-600 dark:text-amber-400" : ""}>
+                              {f.owner_email ?? "—"}
+                            </span>
+                            {f.owner_email_valid === false && (
+                              <span className="block text-[9px] text-amber-600 dark:text-amber-400">
+                                {t("admin.ownerEmailInvalid")}
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-2.5 text-right font-mono">{f.downloads}</td>
                           <td className="px-4 py-2.5 text-right font-mono">{f.unique_ips}</td>
@@ -1141,6 +1183,25 @@ export default function AdminTokenSecurityPage() {
                               </span>
                             ) : (
                               <span className="text-slate-500">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            {f.suspicious && f.file_id ? (
+                              <button
+                                type="button"
+                                onClick={() => void notifyFileOwner(f.file_id!)}
+                                disabled={notifyOwnerBusy || f.owner_email_valid === false}
+                                title={
+                                  f.owner_email_valid === false
+                                    ? t("admin.ownerEmailInvalidHint")
+                                    : undefined
+                                }
+                                className="text-[10px] px-2 py-1 rounded bg-rose-600/80 text-white hover:bg-rose-500 disabled:opacity-50"
+                              >
+                                {t("admin.tokenSecurity.warn")}
+                              </button>
+                            ) : (
+                              <span className="text-slate-600">—</span>
                             )}
                           </td>
                         </tr>
@@ -1163,7 +1224,15 @@ export default function AdminTokenSecurityPage() {
                         {fileDetail.file_name}
                       </h3>
                       <p className="text-xs text-slate-500 mt-1">
-                        Owner: {fileDetail.owner_email ?? "—"} · {fileDetail.storage_mode ?? "share"}
+                        Owner: {fileDetail.owner_email ?? "—"}
+                        {fileDetail.owner_email_valid === false && (
+                          <span className="text-amber-600 dark:text-amber-400">
+                            {" "}
+                            ({t("admin.ownerEmailInvalid")})
+                          </span>
+                        )}
+                        {" · "}
+                        {fileDetail.storage_mode ?? "share"}
                       </p>
                     </div>
                     <button
@@ -1171,8 +1240,23 @@ export default function AdminTokenSecurityPage() {
                       onClick={() => setFileDetail(null)}
                       className="ml-auto text-xs text-slate-500 hover:text-white"
                     >
-                      Đóng
+                      {t("admin.close")}
                     </button>
+                    {fileDetail.stats.suspicious && (
+                      <button
+                        type="button"
+                        disabled={notifyOwnerBusy || fileDetail.owner_email_valid === false}
+                        title={
+                          fileDetail.owner_email_valid === false
+                            ? t("admin.ownerEmailInvalidHint")
+                            : undefined
+                        }
+                        onClick={() => void notifyFileOwner(fileDetail.file_id)}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-rose-600/90 text-white hover:bg-rose-500 disabled:opacity-50"
+                      >
+                        {notifyOwnerBusy ? t("admin.notifying") : t("admin.notifyOwner")}
+                      </button>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-xs">
                     {[
@@ -1180,7 +1264,7 @@ export default function AdminTokenSecurityPage() {
                       ["Upload", fileDetail.stats.uploads],
                       ["IP", fileDetail.stats.unique_ips],
                       ["SAS active", fileDetail.stats.active_sas_links],
-                      ["Rủi ro", fileDetail.stats.suspicious ? "Có" : "Không"],
+                      [t("admin.tokenSecurity.risk"), fileDetail.stats.suspicious ? t("admin.tokenSecurity.riskYes") : t("admin.tokenSecurity.riskNo")],
                     ].map(([label, val]) => (
                       <div key={String(label)} className="rounded-lg bg-slate-500/5 py-2">
                         <p className="font-mono font-semibold">{val}</p>
@@ -1190,7 +1274,7 @@ export default function AdminTokenSecurityPage() {
                   </div>
                   {fileDetail.recent_alerts.length > 0 && (
                     <div>
-                      <h4 className="text-xs font-semibold text-amber-300 mb-2">Cảnh báo AI liên quan</h4>
+                      <h4 className="text-xs font-semibold text-amber-300 mb-2">{t("admin.tokenSecurity.relatedAiAlerts")}</h4>
                       <ul className="space-y-1.5 text-xs">
                         {fileDetail.recent_alerts.map((a) => (
                           <li key={a.id} className="flex flex-wrap gap-2 text-slate-600 dark:text-white/60">
@@ -1205,7 +1289,7 @@ export default function AdminTokenSecurityPage() {
                   {fileDetail.recent_downloads.length > 0 && (
                     <div>
                       <h4 className="text-xs font-semibold text-slate-600 dark:text-white/50 mb-2">
-                        Download gần đây
+                        {t("admin.tokenSecurity.recentDownloads")}
                       </h4>
                       <ul className="space-y-1 text-[11px] font-mono text-slate-500">
                         {fileDetail.recent_downloads.map((d, i) => (
@@ -1231,12 +1315,12 @@ export default function AdminTokenSecurityPage() {
           {!aiResults.length && !aiError && (
             <div className={`${surfaceCard} p-8 text-center`}>
               <p className="text-slate-600 dark:text-white/35 text-sm mb-4">
-                Chưa có báo cáo AI. Nhấn "Chạy LockSend AI" ở tab Overview.
+                {t("admin.tokenSecurity.noAiReport")}
               </p>
               <button type="button" onClick={() => void runAiAnalyze()} disabled={analyzing || !aiReady}
                 className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-sm text-white transition disabled:opacity-50">
                 {analyzing ? <LoadingSpinner size="sm" /> : null}
-                {aiReady ? "Chạy LockSend AI" : "Model chưa sẵn sàng"}
+                {aiReady ? t("admin.tokenSecurity.runAi") : t("admin.tokenSecurity.modelNotReadyBtn")}
               </button>
             </div>
           )}
@@ -1245,7 +1329,7 @@ export default function AdminTokenSecurityPage() {
           {aiError && !aiResults.length && (
             <div className={`${surfaceCard} p-5`}>
               <p className="text-sm text-amber-300/90">
-                <span className="font-medium">LockSend AI lỗi:</span> {aiError}
+                <span className="font-medium">{t("admin.tokenSecurity.aiError")}</span> {aiError}
               </p>
               {aiHealth && !aiHealth.ready && (
                 <p className="text-xs text-slate-500 dark:text-white/30 mt-2 font-mono">
@@ -1261,21 +1345,21 @@ export default function AdminTokenSecurityPage() {
               {/* Summary stats */}
               <div className={`${surfaceCard} p-5`}>
                 <div className="flex flex-wrap items-center gap-3 mb-3">
-                  <h3 className="text-sm font-semibold text-emerald-300">Kết quả LockSend AI</h3>
-                  <span className="text-xs text-slate-500 dark:text-white/30">{aiResults.length} token được phân tích</span>
+                  <h3 className="text-sm font-semibold text-emerald-300">{t("admin.tokenSecurity.aiResults")}</h3>
+                  <span className="text-xs text-slate-500 dark:text-white/30">{t("admin.tokenSecurity.tokensAnalyzed", { count: aiResults.length })}</span>
                   <button
                     type="button"
                     onClick={exportAiCsv}
                     className="ml-auto text-xs px-3 py-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition"
                   >
-                    Xuất CSV
+                    {t("admin.tokenSecurity.exportCsv")}
                   </button>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-center">
                   {[
-                    { label: "Cần theo dõi", value: aiResults.filter(r => r.decision === "MONITOR").length, color: "text-amber-300" },
-                    { label: "Cần thu hồi", value: aiResults.filter(r => r.decision === "REVOKE").length, color: "text-rose-300" },
-                    { label: "Rule ≠ AI", value: aiResults.filter(r => r.agreement?.status === "disagree").length, color: "text-orange-300" },
+                    { label: t("admin.tokenSecurity.monitor"), value: aiResults.filter(r => r.decision === "MONITOR").length, color: "text-amber-300" },
+                    { label: t("admin.tokenSecurity.revoke"), value: aiResults.filter(r => r.decision === "REVOKE").length, color: "text-rose-300" },
+                    { label: t("admin.tokenSecurity.ruleDisagree"), value: aiResults.filter(r => r.agreement?.status === "disagree").length, color: "text-orange-300" },
                   ].map(({ label, value, color }) => (
                     <div key={label}>
                       <p className={`text-xl font-bold ${color}`}>{value}</p>
@@ -1288,14 +1372,14 @@ export default function AdminTokenSecurityPage() {
               {/* Per-token results */}
               <div className={`${surfaceCard} overflow-hidden`}>
                 <div className={`px-5 py-3 border-b ${admin.divider}`}>
-                  <h4 className="text-xs font-semibold text-slate-600 dark:text-white/50 uppercase tracking-wide">Chi tiết từng token</h4>
+                  <h4 className="text-xs font-semibold text-slate-600 dark:text-white/50 uppercase tracking-wide">{t("admin.tokenSecurity.perTokenDetails")}</h4>
                 </div>
                 <div className="divide-y divide-white/[0.04]">
                   {aiResults.map((r, i) => {
                     const rule = aiRuleMetrics[i];
                     if (r.error) return (
                       <div key={r.token_id ?? i} className="px-5 py-3 text-xs text-rose-300/60">
-                        {r.token_id?.slice(0, 12)}… — lỗi: {r.error}
+                        {r.token_id?.slice(0, 12)}… — {t("admin.tokenSecurity.tokenError")} {r.error}
                       </div>
                     );
                     const ruleScore = r.rule_score ?? rule?.risk_score ?? "—";
@@ -1318,7 +1402,7 @@ export default function AdminTokenSecurityPage() {
                               <AgreementBadge status={r.agreement.status} label={r.agreement.label} />
                             )}
                             <span className="text-[10px] text-slate-500 dark:text-white/25 ml-auto hidden sm:inline group-open:hidden">
-                              Chi tiết ▸
+                              {t("admin.tokenSecurity.details")}
                             </span>
                           </div>
                           {(r.behavior_badges?.length ?? 0) > 0 && (

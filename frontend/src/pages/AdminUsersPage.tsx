@@ -3,6 +3,7 @@ import { useAuth } from "../contexts/AuthContext";
 import api from "../utils/api";
 import PageLoader, { LoadingSpinner } from "../components/LoadingSpinner";
 import { admin, surfaceCard } from "../styles/theme";
+import { useT } from "../i18n/context";
 
 interface UserRow {
   id: string;
@@ -22,6 +23,7 @@ const ROLE_BADGE: Record<Role, string> = {
 };
 
 export default function AdminUsersPage() {
+  const t = useT();
   const { user: me } = useAuth();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,7 +37,7 @@ export default function AdminUsersPage() {
       setUsers(res.data);
       setError(null);
     } catch {
-      setError("Không thể tải danh sách user");
+      setError(t("admin.usersPage.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -55,20 +57,20 @@ export default function AdminUsersPage() {
         prev.map((u) => (u.id === userId ? { ...u, role: res.data.role } : u))
       );
     } catch {
-      setError("Đổi role thất bại");
+      setError(t("admin.usersPage.roleChangeFailed"));
     } finally {
       setChanging(null);
     }
   };
 
   const handleDelete = async (userId: string, email: string | null) => {
-    if (!confirm(`Xóa user "${email ?? userId}"? Hành động này không thể hoàn tác.`)) return;
+    if (!confirm(t("admin.usersPage.deleteConfirm", { email: email ?? userId }))) return;
     setChanging(userId);
     try {
       await api.delete(`/auth/admin/users/${userId}`);
       setUsers((prev) => prev.filter((u) => u.id !== userId));
     } catch {
-      setError("Xóa user thất bại");
+      setError(t("admin.usersPage.deleteFailed"));
     } finally {
       setChanging(null);
     }
@@ -78,8 +80,8 @@ export default function AdminUsersPage() {
     <div className="space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
-          <h2 className={admin.title}>Quản lý người dùng</h2>
-          <p className={admin.desc}>Đổi role hoặc xóa tài khoản · Chỉ admin</p>
+          <h2 className={admin.title}>{t("admin.usersPage.title")}</h2>
+          <p className={admin.desc}>{t("admin.usersPage.desc")}</p>
         </div>
         <button
           type="button"
@@ -92,7 +94,7 @@ export default function AdminUsersPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
           )}
-          Làm mới
+          {t("admin.refresh")}
         </button>
       </div>
 
@@ -113,10 +115,10 @@ export default function AdminUsersPage() {
             </span>
             <span>
               {r === "owner"
-                ? "Upload + chia sẻ"
+                ? t("admin.usersPage.roleOwnerDesc")
                 : r === "recipient"
-                  ? "Chỉ xem / tải được chia sẻ"
-                  : "Quản trị + Stress test"}
+                  ? t("admin.usersPage.roleRecipientDesc")
+                  : t("admin.usersPage.roleAdminDesc")}
             </span>
           </div>
         ))}
@@ -126,20 +128,20 @@ export default function AdminUsersPage() {
         {loading ? (
           <PageLoader
             variant="embedded"
-            title="Đang tải danh sách người dùng…"
+            title={t("admin.usersPage.loading")}
             className="py-12"
           />
         ) : users.length === 0 ? (
-          <div className={`py-16 text-center ${admin.empty}`}>Chưa có user nào</div>
+          <div className={`py-16 text-center ${admin.empty}`}>{t("admin.usersPage.empty")}</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr className={admin.tableHead}>
-                  <th className="px-4 sm:px-5 py-3">Người dùng</th>
-                  <th className="px-4 sm:px-5 py-3">Role</th>
-                  <th className="px-4 sm:px-5 py-3 whitespace-nowrap">Ngày tạo</th>
-                  <th className="px-4 sm:px-5 py-3 w-28">Thao tác</th>
+                  <th className="px-4 sm:px-5 py-3">{t("admin.usersPage.colUser")}</th>
+                  <th className="px-4 sm:px-5 py-3">{t("admin.usersPage.colRole")}</th>
+                  <th className="px-4 sm:px-5 py-3 whitespace-nowrap">{t("admin.usersPage.colCreated")}</th>
+                  <th className="px-4 sm:px-5 py-3 w-28">{t("admin.usersPage.colActions")}</th>
                 </tr>
               </thead>
               <tbody className={admin.tableDivide}>
@@ -160,7 +162,7 @@ export default function AdminUsersPage() {
                             <div className={`${admin.cellName} flex items-center gap-2 flex-wrap`}>
                               <span className="truncate">{u.display_name || u.email}</span>
                               {isMe && (
-                                <span className={admin.selfTag}>Bạn</span>
+                                <span className={admin.selfTag}>{t("admin.usersPage.selfTag")}</span>
                               )}
                             </div>
                             <div className={`${admin.cellSub} truncate`}>{u.email}</div>
@@ -212,7 +214,7 @@ export default function AdminUsersPage() {
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                               </svg>
                             )}
-                            Xóa
+                            {t("admin.delete")}
                           </button>
                         )}
                       </td>
@@ -226,9 +228,12 @@ export default function AdminUsersPage() {
       </div>
 
       <p className={admin.footer}>
-        Tổng {users.length} tài khoản · {users.filter((u) => u.role === "owner").length} owner ·{" "}
-        {users.filter((u) => u.role === "recipient").length} recipient · {users.filter((u) => u.role === "admin").length}{" "}
-        admin
+        {t("admin.usersPage.footer", {
+          total: users.length,
+          owners: users.filter((u) => u.role === "owner").length,
+          recipients: users.filter((u) => u.role === "recipient").length,
+          admins: users.filter((u) => u.role === "admin").length,
+        })}
       </p>
     </div>
   );

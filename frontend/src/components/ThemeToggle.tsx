@@ -1,4 +1,5 @@
 import { useTheme } from "../contexts/ThemeContext";
+import { useT } from "../i18n/context";
 
 type Props = {
   className?: string;
@@ -7,14 +8,15 @@ type Props = {
 
 export default function ThemeToggle({ className = "", showLabel = false }: Props) {
   const { theme, toggleTheme } = useTheme();
+  const t = useT();
   const isDark = theme === "dark";
 
   return (
     <button
       type="button"
       onClick={toggleTheme}
-      title={isDark ? "Chuyển giao diện sáng" : "Chuyển giao diện tối"}
-      aria-label={isDark ? "Bật chế độ sáng" : "Bật chế độ tối"}
+      title={isDark ? t("theme.switchToLight") : t("theme.switchToDark")}
+      aria-label={isDark ? t("theme.switchToLight") : t("theme.switchToDark")}
       className={`inline-flex items-center gap-2 p-2 rounded-lg border transition
         border-slate-300/55 bg-[#e4e7ee] text-slate-600 hover:bg-slate-300/40 hover:text-slate-800
         dark:border-white/10 dark:bg-white/[0.04] dark:text-white/50 dark:hover:bg-white/[0.08] dark:hover:text-white/90
@@ -39,7 +41,7 @@ export default function ThemeToggle({ className = "", showLabel = false }: Props
       )}
       {showLabel && (
         <span className="text-xs font-medium hidden sm:inline">
-          {isDark ? "Sáng" : "Tối"}
+          {isDark ? t("theme.lightShort") : t("theme.darkShort")}
         </span>
       )}
     </button>

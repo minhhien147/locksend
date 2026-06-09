@@ -22,6 +22,7 @@ import {
   resolveCiphertextInfoBySas,
 } from "../utils/api";
 import { saveDownloadEntry } from "../utils/downloadHistory";
+import { useT } from "../i18n/context";
 
 export type DownloadStage =
   | "idle"
@@ -42,6 +43,7 @@ interface UseDownloadState {
   chunkProgress: ChunkDecryptProgress | null;
   isChunkedFile: boolean;
   verifiedMeta: EncryptionMetadata | null;
+  plaintextChecksum: string;
 }
 
 export interface UseDownloadReturn extends UseDownloadState {
@@ -63,6 +65,7 @@ const initialState: UseDownloadState = {
   chunkProgress: null,
   isChunkedFile: false,
   verifiedMeta: null,
+  plaintextChecksum: "",
 };
 
 function mergeMetadata(
@@ -73,6 +76,7 @@ function mergeMetadata(
 }
 
 export function useDownload(): UseDownloadReturn {
+  const t = useT();
   const [state, setState] = useState<UseDownloadState>(initialState);
 
   async function finishDownload(
@@ -92,14 +96,15 @@ export function useDownload(): UseDownloadReturn {
       serverFileId,
     });
     void recordDownloadLog({ sasUrl: logSasUrl, serverFileId });
-    setState({
-      stage: "done",
-      error: "",
-      fileName: metadata.fileName,
-      chunkProgress: null,
-      isChunkedFile: isChunked,
-      verifiedMeta: metadata,
-    });
+      setState({
+        stage: "done",
+        error: "",
+        fileName: metadata.fileName,
+        chunkProgress: null,
+        isChunkedFile: isChunked,
+        verifiedMeta: metadata,
+        plaintextChecksum: metadata.plaintextChecksum ?? "",
+      });
   }
 
   async function runStreamingDecrypt(
@@ -111,8 +116,7 @@ export function useDownload(): UseDownloadReturn {
     if (!myKeys) {
       setState((prev) => ({
         ...prev,
-        error:
-          "Chưa mở khóa keypair. Vào trang Quản lý Keys, nhập passphrase (hoặc tạo key mới).",
+        error: t("download.keysLocked"),
       }));
       return;
     }
@@ -120,8 +124,7 @@ export function useDownload(): UseDownloadReturn {
     if (!supportsStreamingFileSave()) {
       setState((prev) => ({
         ...prev,
-        error:
-          "File lớn (≥64MB) cần Chrome hoặc Edge để lưu trực tiếp ra đĩa. Trình duyệt hiện tại không hỗ trợ.",
+        error: t("download.largeFileBrowser"),
         stage: "error",
       }));
       return;
@@ -134,6 +137,7 @@ export function useDownload(): UseDownloadReturn {
       chunkProgress: { done: 0, total: metadata.chunkCount },
       isChunkedFile: true,
       verifiedMeta: null,
+      plaintextChecksum: "",
     });
 
     let writable: FileSystemWritableFileStream | null = null;
@@ -163,7 +167,7 @@ export function useDownload(): UseDownloadReturn {
       }
       setState((prev) => ({
         ...prev,
-        error: (e as Error)?.message ?? "Đã xảy ra lỗi không xác định.",
+        error: (e as Error)?.message ?? t("common.unknownError"),
         stage: "error",
         chunkProgress: null,
       }));
@@ -182,8 +186,7 @@ export function useDownload(): UseDownloadReturn {
     if (!myKeys) {
       setState((prev) => ({
         ...prev,
-        error:
-          "Chưa mở khóa keypair. Vào trang Quản lý Keys, nhập passphrase (hoặc tạo key mới).",
+        error: t("download.keysLocked"),
       }));
       return;
     }
@@ -195,6 +198,7 @@ export function useDownload(): UseDownloadReturn {
       chunkProgress: null,
       isChunkedFile: false,
       verifiedMeta: null,
+      plaintextChecksum: "",
     });
 
     try {
@@ -243,7 +247,7 @@ export function useDownload(): UseDownloadReturn {
     } catch (e) {
       setState((prev) => ({
         ...prev,
-        error: (e as Error)?.message ?? "Đã xảy ra lỗi không xác định.",
+        error: (e as Error)?.message ?? t("common.unknownError"),
         stage: "error",
         chunkProgress: null,
       }));
@@ -257,7 +261,7 @@ export function useDownload(): UseDownloadReturn {
     if (!sasUrl.trim()) {
       setState((prev) => ({
         ...prev,
-        error: "Vui lòng nhập SAS Link.",
+        error: t("download.sasRequired"),
       }));
       return;
     }

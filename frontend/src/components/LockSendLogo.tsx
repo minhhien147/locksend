@@ -6,11 +6,18 @@
 /** Header / mobile — mark nhỏ */
 export function LockSendMark({ className = "h-7 w-auto" }: { className?: string }) {
   return (
-    <div className="rounded-lg bg-white/[0.94] p-1 shrink-0 shadow-sm shadow-black/20">
+    <div className="rounded-lg bg-white p-1 shrink-0 shadow-sm shadow-black/20 dark:ring-1 dark:ring-white/10">
       <img
         src="/locksend-mark.png"
         alt="LockSend"
+        width={28}
+        height={28}
         className={`block object-contain ${className}`}
+        onError={(e) => {
+          const img = e.currentTarget;
+          if (img.src.endsWith("/favicon.svg")) return;
+          img.src = "/favicon.svg";
+        }}
       />
     </div>
   );
@@ -29,7 +36,7 @@ export function LockSendLogoHero() {
         />
       </div>
       <span className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-        Lock<span className="text-indigo-600 dark:text-indigo-400">Send</span>
+        Lock<span className="text-blue-800 dark:text-blue-500">Send</span>
       </span>
     </div>
   );

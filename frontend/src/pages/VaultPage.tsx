@@ -22,6 +22,7 @@ import Alert from "../components/ui/Alert";
 import PageLoader, { LoadingSpinner } from "../components/LoadingSpinner";
 import { isUnlocked } from "../utils/keyVault";
 import { dropzone, inputBase, text } from "../styles/theme";
+import { useT } from "../i18n/context";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -49,6 +50,7 @@ function VaultFileRow({
   onRefresh: () => void;
   onShare: (f: VaultFile) => void;
 }) {
+  const t = useT();
   const {
     stage,
     error,
@@ -76,13 +78,13 @@ function VaultFileRow({
   }
 
   async function handleDelete() {
-    if (!confirm(`Xóa "${file.original_filename}" khỏi kho?`)) return;
+    if (!confirm(t("vault.confirmDelete", { name: file.original_filename }))) return;
     setDelBusy(true);
     try {
       await deleteVaultFile(file.file_id);
       onRefresh();
     } catch {
-      alert("Không xóa được file");
+      alert(t("vault.deleteFailed"));
     } finally {
       setDelBusy(false);
     }
@@ -106,14 +108,14 @@ function VaultFileRow({
           </p>
           {file.shared_count > 0 && (
             <span className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
-              Đã chia sẻ {file.shared_count} người
+              {t("vault.sharedCount", { count: file.shared_count })}
             </span>
           )}
         </div>
       </div>
 
       {stage === "done" && (
-        <Alert tone="success">Đã tải: {fileName}</Alert>
+        <Alert tone="success">{t("vault.downloaded", { name: fileName })}</Alert>
       )}
       {(error || stage === "error") && error && (
         <Alert tone="error">{error}</Alert>
@@ -129,22 +131,25 @@ function VaultFileRow({
             <span className="flex items-center gap-1.5">
               <LoadingSpinner size="xs" />
               {stage === "decrypting" && chunkProgress
-                ? `Giải mã ${chunkProgress.done}/${chunkProgress.total}…`
+                ? t("vault.decrypting", {
+                    done: chunkProgress.done,
+                    total: chunkProgress.total,
+                  })
                 : stage === "downloading"
-                  ? "Đang tải file lớn…"
-                  : "Đang xử lý…"}
+                  ? t("vault.downloadingLarge")
+                  : t("vault.processing")}
             </span>
           ) : (
-            "Tải về"
+            t("vault.download")
           )}
         </Button>
         <Button
           variant="secondary"
           disabled={isWorking || !file.can_share}
           onClick={() => onShare(file)}
-          title={file.can_share ? undefined : "File chunked chưa hỗ trợ chia sẻ"}
+          title={file.can_share ? undefined : t("vault.chunkedNoShare")}
         >
-          Chia sẻ
+          {t("vault.share")}
         </Button>
         <button
           type="button"
@@ -152,7 +157,7 @@ function VaultFileRow({
           onClick={() => void handleDelete()}
           className="text-xs px-3 py-2 rounded-xl border border-rose-500/25 text-rose-400 hover:bg-rose-500/10 disabled:opacity-40"
         >
-          {delBusy ? "…" : "Xóa"}
+          {delBusy ? "…" : t("common.delete")}
         </button>
       </div>
     </div>
@@ -162,6 +167,7 @@ function VaultFileRow({
 const VAULT_PAGE_KEY = "vault";
 
 export function VaultPanel({ embedded = false }: { embedded?: boolean }) {
+  const t = useT();
   const [keysReady, setKeysReady] = useState(() => isUnlocked());
   const [quota, setQuota] = useState<VaultQuota | null>(null);
   const [folders, setFolders] = useState<VaultFolder[]>([]);
@@ -202,11 +208,11 @@ export function VaultPanel({ embedded = false }: { embedded?: boolean }) {
       setFiles(f);
       setFolders(fl);
     } catch {
-      setError("Không tải được kho lưu trữ");
+      setError(t("vault.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [folderId, search]);
+  }, [folderId, search, t]);
 
   useEffect(() => {
     void loadAll();
@@ -220,7 +226,7 @@ export function VaultPanel({ embedded = false }: { embedded?: boolean }) {
       setNewFolderName("");
       await loadAll();
     } catch {
-      alert("Không tạo được thư mục (tên trùng?)");
+      alert(t("vault.folderCreateFailed"));
     }
   }
 
@@ -256,8 +262,8 @@ export function VaultPanel({ embedded = false }: { embedded?: boolean }) {
     <div className={embedded ? "space-y-5" : "max-w-5xl mx-auto space-y-5"}>
       {!embedded && (
         <PageHeader
-          title="Kho lưu trữ"
-          description="Lưu file riêng tư — mã hóa bằng key của bạn, có thể chia sẻ sau"
+          title={t("vault.title")}
+          description={t("vault.description")}
         />
       )}
 
@@ -267,9 +273,12 @@ export function VaultPanel({ embedded = false }: { embedded?: boolean }) {
         <Card padding="sm" className="space-y-2">
           <div className="flex justify-between text-xs text-white/50">
             <span>
-              Đã dùng {formatBytes(quota.used_bytes)} / {formatBytes(quota.quota_bytes)}
+              {t("vault.usedQuota", {
+                used: formatBytes(quota.used_bytes),
+                total: formatBytes(quota.quota_bytes),
+              })}
             </span>
-            <span>{quota.file_count} file</span>
+            <span>{t("vault.fileCount", { count: quota.file_count })}</span>
           </div>
           <div className="h-2 rounded-full bg-white/10 overflow-hidden">
             <div
@@ -285,7 +294,7 @@ export function VaultPanel({ embedded = false }: { embedded?: boolean }) {
       <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-4">
         <aside className="space-y-2">
           <p className={`text-xs font-semibold uppercase tracking-wider ${text.faint}`}>
-            Thư mục
+            {t("vault.folders")}
           </p>
           <button
             type="button"
@@ -296,7 +305,7 @@ export function VaultPanel({ embedded = false }: { embedded?: boolean }) {
                 : "hover:bg-white/5 text-white/60"
             }`}
           >
-            Tất cả (gốc)
+            {t("vault.allRoot")}
           </button>
           {folders.map((fo) => (
             <button
@@ -317,7 +326,7 @@ export function VaultPanel({ embedded = false }: { embedded?: boolean }) {
             <input
               value={newFolderName}
               onChange={(e) => setNewFolderName(e.target.value)}
-              placeholder="Thư mục mới"
+              placeholder={t("vault.newFolder")}
               className={`flex-1 text-xs ${inputBase}`}
             />
             <button
@@ -361,13 +370,12 @@ export function VaultPanel({ embedded = false }: { embedded?: boolean }) {
             {uploading ? (
               <p className="text-sm text-indigo-300 flex items-center justify-center gap-2">
                 <LoadingSpinner size="sm" />
-                Đang lưu vào kho…
-                {uploadQueue.length > 1 && ` (${uploadQueue.length} file)`}
+                {t("vault.saving")}
+                {uploadQueue.length > 1 &&
+                  ` ${t("vault.savingMulti", { count: uploadQueue.length })}`}
               </p>
             ) : (
-              <p className={`text-sm ${text.secondary}`}>
-                Kéo thả hoặc chọn file để lưu vào kho
-              </p>
+              <p className={`text-sm ${text.secondary}`}>{t("vault.dropzone")}</p>
             )}
           </div>
 
@@ -377,25 +385,25 @@ export function VaultPanel({ embedded = false }: { embedded?: boolean }) {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Tìm theo tên file…"
+              placeholder={t("vault.searchPlaceholder")}
               className={`flex-1 text-sm ${inputBase}`}
             />
             <Button variant="secondary" onClick={() => void loadAll()}>
-              Tải lại
+              {t("common.refresh")}
             </Button>
           </div>
 
           {error && <Alert tone="error">{error}</Alert>}
 
           {loading ? (
-            <PageLoader variant="embedded" title="Đang tải kho…" />
+            <PageLoader variant="embedded" title={t("vault.loading")} />
           ) : files.length === 0 ? (
             <Card className="text-center py-12">
-              <p className={`text-sm ${text.muted}`}>Chưa có file trong thư mục này.</p>
+              <p className={`text-sm ${text.muted}`}>{t("vault.emptyFolder")}</p>
               <p className={`text-xs mt-2 ${text.faint}`}>
-                Hoặc dùng{" "}
+                {t("vault.emptyHint")}{" "}
                 <Link to="/" className="text-indigo-400 hover:underline">
-                  Upload → Lưu kho
+                  {t("vault.emptyHintLink")}
                 </Link>
               </p>
             </Card>

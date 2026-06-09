@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { decryptKeyBlob, validatePassphrase } from "../utils/crypto";
 import { setKeys } from "../utils/keyVault";
 import { fetchMyEncryptedKeyBlob } from "../utils/api";
+import { syncPublicKeysToServer } from "../utils/keySync";
+import { useT } from "../i18n/context";
 import { inputBase, btn, btnGhost, text, surfaceCard } from "../styles/theme";
 
 interface KeyUnlockModalProps {
@@ -17,7 +19,14 @@ type ModalState =
   | { phase: "unlock"; blob: string }
   | { phase: "error"; message: string };
 
+function translatePassphraseError(t: ReturnType<typeof useT>, code: string): string {
+  if (code === "PASSPHRASE_TOO_SHORT") return t("errors.PASSPHRASE_TOO_SHORT");
+  if (code === "WRONG_PASSPHRASE") return t("keyUnlock.wrongPassphrase");
+  return code;
+}
+
 export default function KeyUnlockModal({ onUnlocked, onDismiss }: KeyUnlockModalProps) {
+  const t = useT();
   const [modalState, setModalState] = useState<ModalState>({ phase: "loading" });
   const [passphrase, setPassphrase] = useState("");
   const [unlocking, setUnlocking] = useState(false);
@@ -34,9 +43,9 @@ export default function KeyUnlockModal({ onUnlocked, onDismiss }: KeyUnlockModal
         setModalState({ phase: "unlock", blob: data.encrypted_key_blob });
       }
     } catch {
-      setModalState({ phase: "error", message: "Không kết nối được server." });
+      setModalState({ phase: "error", message: t("keyUnlock.serverError") });
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -44,18 +53,21 @@ export default function KeyUnlockModal({ onUnlocked, onDismiss }: KeyUnlockModal
     e.preventDefault();
     if (modalState.phase !== "unlock") return;
     const err = validatePassphrase(passphrase);
-    if (err) { setUnlockError(err); return; }
+    if (err) { setUnlockError(translatePassphraseError(t, err)); return; }
 
     setUnlocking(true);
     setUnlockError(null);
     try {
       const keys = await decryptKeyBlob(modalState.blob, passphrase);
       await setKeys(keys);
+      void syncPublicKeysToServer();
       setPassphrase("");
       onUnlocked();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";
-      setUnlockError(msg === "WRONG_PASSPHRASE" ? "Passphrase không đúng." : "Không mở khóa được.");
+      setUnlockError(
+        msg === "WRONG_PASSPHRASE" ? t("keyUnlock.wrongPassphrase") : t("keyUnlock.unlockFailed")
+      );
     } finally {
       setUnlocking(false);
     }
@@ -64,7 +76,7 @@ export default function KeyUnlockModal({ onUnlocked, onDismiss }: KeyUnlockModal
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
       <div className={`w-full max-w-md ${surfaceCard} p-6 sm:p-8 shadow-2xl space-y-5`}>
-        <h2 className={`text-base font-semibold ${text.primary}`}>Passphrase</h2>
+        <h2 className={`text-base font-semibold ${text.primary}`}>{t("keyUnlock.passphrase")}</h2>
 
         {modalState.phase === "loading" && (
           <div className="flex justify-center py-6">
@@ -74,13 +86,13 @@ export default function KeyUnlockModal({ onUnlocked, onDismiss }: KeyUnlockModal
 
         {modalState.phase === "no_keys" && (
           <div className="space-y-4">
-            <p className={`text-sm ${text.secondary}`}>Chưa có keypair.</p>
+            <p className={`text-sm ${text.secondary}`}>{t("keyUnlock.noKeypair")}</p>
             <Link to="/keys" className={`block w-full text-center py-2.5 rounded-lg text-sm font-semibold ${btn.primary}`}>
-              Keys
+              {t("nav.keys")}
             </Link>
             {onDismiss && (
               <button type="button" onClick={onDismiss} className={`w-full text-sm ${btnGhost}`}>
-                Bỏ qua
+                {t("common.skip")}
               </button>
             )}
           </div>
@@ -89,14 +101,14 @@ export default function KeyUnlockModal({ onUnlocked, onDismiss }: KeyUnlockModal
         {modalState.phase === "blob_missing" && (
           <div className="space-y-4">
             <p className="text-sm text-rose-600 dark:text-rose-400">
-              Public key trên server nhưng thiếu blob passphrase (có thể do đồng bộ cũ). Không tạo keypair mới.
+              {t("keyUnlock.blobMissing")}
             </p>
             <Link to="/keys" className={`block w-full text-center py-2.5 rounded-lg text-sm font-semibold ${btn.primary}`}>
-              Keys — Migrate
+              {t("nav.keys")} — {t("keys.migrate")}
             </Link>
             {onDismiss && (
               <button type="button" onClick={onDismiss} className={`w-full text-sm ${btnGhost}`}>
-                Bỏ qua
+                {t("common.skip")}
               </button>
             )}
           </div>
@@ -108,7 +120,7 @@ export default function KeyUnlockModal({ onUnlocked, onDismiss }: KeyUnlockModal
               type="password"
               value={passphrase}
               onChange={(e) => { setPassphrase(e.target.value); setUnlockError(null); }}
-              placeholder="Passphrase"
+              placeholder={t("keyUnlock.passphrase")}
               autoComplete="current-password"
               autoFocus
               disabled={unlocking}
@@ -123,7 +135,7 @@ export default function KeyUnlockModal({ onUnlocked, onDismiss }: KeyUnlockModal
                 disabled={unlocking || !passphrase}
                 className={`flex-1 ${btn.primary} disabled:opacity-40`}
               >
-                {unlocking ? "…" : "Mở khóa"}
+                {unlocking ? "…" : t("common.unlock")}
               </button>
               {onDismiss && (
                 <button
@@ -132,7 +144,7 @@ export default function KeyUnlockModal({ onUnlocked, onDismiss }: KeyUnlockModal
                   disabled={unlocking}
                   className="px-4 py-2.5 rounded-lg text-sm font-medium border border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800/60"
                 >
-                  Bỏ qua
+                  {t("common.skip")}
                 </button>
               )}
             </div>
@@ -148,12 +160,12 @@ export default function KeyUnlockModal({ onUnlocked, onDismiss }: KeyUnlockModal
                 onClick={() => { setModalState({ phase: "loading" }); void load(); }}
                 className={`flex-1 ${btn.primary}`}
               >
-                Thử lại
+                {t("common.retry")}
               </button>
               {onDismiss && (
                 <button type="button" onClick={onDismiss}
                   className="px-4 py-2.5 rounded-lg text-sm font-medium border border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800/60">
-                  Bỏ qua
+                  {t("common.skip")}
                 </button>
               )}
             </div>

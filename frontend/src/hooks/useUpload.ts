@@ -22,6 +22,7 @@ import {
   finalizeMultipartUpload,
   type RecipientPayload,
 } from "../utils/api";
+import { useT } from "../i18n/context";
 
 export type UploadStage = "idle" | "encrypting" | "uploading" | "done" | "error";
 
@@ -94,6 +95,7 @@ function buildRecipientPayloads(
 }
 
 export function useUpload(): UseUploadReturn {
+  const t = useT();
   const [state, setState] = useState<UseUploadState>(initialState);
   const [currentFile, setCurrentFile] = useState<File | null>(null);
 
@@ -110,7 +112,7 @@ export function useUpload(): UseUploadReturn {
     options?: UploadOptions
   ): Promise<void> {
     if (!file) {
-      setState((prev) => ({ ...prev, error: "Vui lòng chọn file." }));
+      setState((prev) => ({ ...prev, error: t("upload.pickFile") }));
       return;
     }
 
@@ -122,7 +124,7 @@ export function useUpload(): UseUploadReturn {
     if (purpose === "share" && !useManual && activeRecipients.length === 0) {
       setState((prev) => ({
         ...prev,
-        error: "Chọn ít nhất một người nhận có public key.",
+        error: t("upload.needRecipient"),
       }));
       return;
     }
@@ -130,8 +132,7 @@ export function useUpload(): UseUploadReturn {
     if (!myKeys) {
       setState((prev) => ({
         ...prev,
-        error:
-          "Chưa mở khóa keypair. Vào trang Quản lý Keys, nhập passphrase (hoặc tạo key mới).",
+        error: t("download.keysLocked"),
       }));
       return;
     }
@@ -146,8 +147,10 @@ export function useUpload(): UseUploadReturn {
     if (purpose === "share" && multiCount > 1 && file.size >= CHUNKED_THRESHOLD) {
       setState((prev) => ({
         ...prev,
-        error:
-          `Gửi cho ${multiCount} người chỉ hỗ trợ file nhỏ hơn ${DEFAULT_CHUNK_SIZE / (1024 * 1024)}MB. Chọn một người nhận hoặc file nhỏ hơn.`,
+        error: t("upload.multiRecipientChunkLimit", {
+          count: multiCount,
+          mb: DEFAULT_CHUNK_SIZE / (1024 * 1024),
+        }),
       }));
       return;
     }
@@ -364,7 +367,7 @@ export function useUpload(): UseUploadReturn {
         }));
       }
     } catch (e) {
-      const msg = (e as Error)?.message ?? "Đã xảy ra lỗi không xác định.";
+      const msg = (e as Error)?.message ?? t("common.unknownError");
       setState((prev) => ({
         ...prev,
         error: msg,

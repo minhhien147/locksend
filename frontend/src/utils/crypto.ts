@@ -871,7 +871,7 @@ const MIN_PASSPHRASE_LEN = 8;
 
 export function validatePassphrase(passphrase: string): string | null {
   if (passphrase.length < MIN_PASSPHRASE_LEN) {
-    return `Passphrase cần ít nhất ${MIN_PASSPHRASE_LEN} ký tự.`;
+    return "PASSPHRASE_TOO_SHORT";
   }
   return null;
 }

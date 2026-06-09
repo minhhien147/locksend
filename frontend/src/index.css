@@ -69,6 +69,7 @@
 
 #root {
   min-height: 100vh;
+  background-color: transparent;
 }
 
 /* ── Theme tokens ───────────────────────────────────────────────── */
@@ -84,20 +85,56 @@
 
 .dark {
   color-scheme: dark;
-  --ls-bg: #0b0d12;
-  --ls-surface: #0c0e14;
-  --ls-input: #12141c;
+  --ls-bg: #0a0e14;
+  --ls-surface: #0d1118;
+  --ls-input: #12161f;
   --ls-border: rgba(255, 255, 255, 0.08);
-  --ls-text: #f8fafc;
-  --ls-muted: rgba(255, 255, 255, 0.4);
+  --ls-text: #e8eaed;
+  --ls-muted: rgba(255, 255, 255, 0.42);
+  --ls-accent: #3b82f6;
 }
 
 html,
 body {
-  background-color: var(--ls-bg);
+  background-color: transparent;
   color: var(--ls-text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-mono,
+code,
+[class*="font-mono"] {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+/* ── Page background — đổi ảnh: thay url("/map.jpg") trong .ls-page-bg ── */
+.ls-page-bg {
+  background-color: #0a0e14;
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(10, 14, 20, 0.35) 0%,
+      rgba(10, 14, 20, 0.55) 55%,
+      rgba(10, 14, 20, 0.72) 100%
+    ),
+    url("/map.jpg");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+}
+
+:root:not(.dark) .ls-page-bg {
+  background-color: #c8d0dc;
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(232, 234, 239, 0.35) 0%,
+      rgba(232, 234, 239, 0.55) 55%,
+      rgba(232, 234, 239, 0.72) 100%
+    ),
+    url("/map.jpg");
 }
 
 /* ── Floating icons — transform (GPU), luôn chạy trừ reduce-motion ─ */

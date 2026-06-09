@@ -30,7 +30,8 @@ const DEFAULT_SIZES_MB = [10, 100, 256, 512];
 /** Kích thước mở rộng — cảnh báo người dùng trước khi chạy */
 const EXTENDED_SIZES_MB = [1024, 2048, 4096];
 
-import { admin, pageDesc, pageTitle, surfaceCard, btn } from "../styles/theme";
+import { admin, pageTitle, surfaceCard, btn } from "../styles/theme";
+import { useT } from "../i18n/context";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -280,13 +281,14 @@ async function runChunkedTest(
 // ─── UI Components ────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: TestStatus }) {
+  const t = useT();
   const cfg: Record<TestStatus, { label: string; cls: string }> = {
     pending: {
-      label: "Chờ",
+      label: t("stressTest.statusPending"),
       cls: "bg-slate-900 text-slate-300 dark:bg-white/[0.06] dark:text-white/40",
     },
     running: {
-      label: "Đang chạy",
+      label: t("stressTest.statusRunning"),
       cls: "bg-slate-900 text-indigo-200 animate-pulse dark:bg-indigo-500/25 dark:text-indigo-300",
     },
     pass: {
@@ -298,11 +300,11 @@ function StatusBadge({ status }: { status: TestStatus }) {
       cls: "bg-slate-900 text-rose-200 border border-slate-600 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/35",
     },
     error: {
-      label: "LỖI",
+      label: t("stressTest.statusError"),
       cls: "bg-slate-900 text-amber-200 border border-slate-600 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/25",
     },
     skipped: {
-      label: "Bỏ qua",
+      label: t("stressTest.statusSkipped"),
       cls: "bg-slate-800 text-slate-400 dark:bg-white/[0.05] dark:text-white/30",
     },
   };
@@ -331,6 +333,7 @@ function formatHeap(v?: number): string {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function StressTestPage() {
+  const t = useT();
   const [rows, setRows] = useState<TestRow[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [currentTest, setCurrentTest] = useState("");
@@ -430,28 +433,14 @@ export default function StressTestPage() {
     setIsRunning(false);
   }, [includedSizesMB, isRunning]);
 
-  const hasMemoryApi = typeof performance !== "undefined" && !!performance.memory;
-
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <header>
-        <h1 className={`${pageTitle} mb-1`}>
-          Stress Test Hiệu Năng — File Lớn
-        </h1>
-        <p className={`${pageDesc} leading-relaxed`}>
-          Đánh giá giới hạn RAM của Web Crypto API (AES-256-GCM) và so sánh single-shot vs chunked encryption.
-        </p>
+        <h1 className={pageTitle}>{t("stressTest.title")}</h1>
       </header>
 
-      {!hasMemoryApi && (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200/95">
-          <strong className="text-amber-800 dark:text-amber-300">Lưu ý:</strong>{" "}
-          <code className="text-amber-900 bg-amber-100 px-1 rounded dark:text-amber-100/90 dark:bg-black/30">performance.memory</code> chỉ đầy đủ trên Chrome (có thể cần flag). Cột Heap Delta hiển thị "—" trên Firefox/Safari.
-        </div>
-      )}
-
       <div className={`${surfaceCard} p-5 sm:p-6 space-y-4`}>
-        <p className={`text-sm font-medium ${admin.sectionTitle}`}>Chọn kích thước file để test</p>
+        <p className={`text-sm font-medium ${admin.sectionTitle}`}>{t("stressTest.selectSizes")}</p>
 
         <div className="flex flex-wrap gap-2">
           {DEFAULT_SIZES_MB.map((mb) => (
@@ -476,7 +465,7 @@ export default function StressTestPage() {
             disabled={isRunning}
             className="px-3 py-2 rounded-xl text-sm font-medium border border-dashed border-amber-500/40 text-amber-400/90 hover:bg-amber-500/10 disabled:opacity-50"
           >
-            {showExtended ? "Ẩn" : "+ Kích thước lớn (1–4GB ⚠️)"}
+            {showExtended ? t("stressTest.hideExtended") : t("stressTest.showExtended")}
           </button>
         </div>
 
@@ -497,9 +486,6 @@ export default function StressTestPage() {
                 {mb >= 1024 ? `${mb / 1024} GB` : `${mb} MB`}
               </button>
             ))}
-            <p className="w-full text-[11px] text-amber-400/80 mt-1">
-              File &gt;1GB có thể làm tab crash (OOM). Lưu công việc trước khi test.
-            </p>
           </div>
         )}
 
@@ -510,7 +496,7 @@ export default function StressTestPage() {
             disabled={isRunning || includedSizesMB.length === 0}
             className={`px-6 ${btn.primary} disabled:opacity-40 disabled:cursor-not-allowed`}
           >
-            {isRunning ? "Đang chạy…" : "Chạy Stress Test"}
+            {isRunning ? t("stressTest.running") : t("stressTest.run")}
           </button>
           {isRunning && (
             <button
@@ -520,19 +506,22 @@ export default function StressTestPage() {
               }}
               className="px-4 py-2.5 rounded-xl text-sm font-medium border border-rose-500/35 text-rose-300 hover:bg-rose-500/10 transition"
             >
-              Dừng
+              {t("stressTest.stop")}
             </button>
           )}
         </div>
 
         {isRunning && currentTest && (
           <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900 dark:border-indigo-500/25 dark:bg-indigo-950/40 dark:text-indigo-200/95">
-            <span className="font-semibold text-indigo-700 dark:text-indigo-300">Đang test:</span> {currentTest}
+            <span className="font-semibold text-indigo-700 dark:text-indigo-300">{t("stressTest.testing")}</span> {currentTest}
             {chunkProgress && (
               <div className="mt-2">
                 <div className="flex justify-between text-xs mb-1 text-slate-600 dark:text-white/50">
                   <span>
-                    Chunk {chunkProgress.done}/{chunkProgress.total}
+                    {t("stressTest.chunkProgress", {
+                      done: chunkProgress.done,
+                      total: chunkProgress.total,
+                    })}
                   </span>
                   <span>{Math.round((chunkProgress.done / chunkProgress.total) * 100)}%</span>
                 </div>
@@ -551,32 +540,30 @@ export default function StressTestPage() {
       {rows.length > 0 && (
         <div className={`${surfaceCard} overflow-hidden`}>
           <div className={`px-4 sm:px-5 py-3 border-b ${admin.divider} bg-slate-900 dark:bg-black/20`}>
-            <p className="text-sm font-semibold text-white/90">Kết quả đo thực tế</p>
+            <p className="text-sm font-semibold text-white/90">{t("stressTest.results")}</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[720px]">
               <thead>
                 <tr className={`border-b ${admin.divider} text-[10px] uppercase tracking-wider bg-slate-900 text-white/80 dark:bg-transparent dark:text-white/40`}>
-                  <th className="px-4 py-3 text-left font-semibold">Kích thước</th>
+                  <th className="px-4 py-3 text-left font-semibold">{t("stressTest.colSize")}</th>
                   <th className={`px-3 py-3 text-center border-l ${admin.divider} font-semibold`} colSpan={4}>
                     <span className="text-rose-300 dark:text-rose-400/95">Single-shot</span>
-                    <span className="text-white/60 font-normal normal-case ml-1 dark:text-white/25">(một lần)</span>
                   </th>
                   <th className={`px-3 py-3 text-center border-l ${admin.divider} font-semibold`} colSpan={4}>
                     <span className="text-emerald-300 dark:text-emerald-400/95">Chunked {CHUNK_SIZE_MB}MB</span>
-                    <span className="text-white/60 font-normal normal-case ml-1 dark:text-white/25">(theo chunk)</span>
                   </th>
                 </tr>
                 <tr className={`text-[10px] border-b ${admin.divider} bg-slate-800 text-white/70 dark:text-white/35 dark:bg-black/15`}>
                   <th className="px-4 py-2 text-left" />
-                  <th className="px-2 py-2 text-center font-medium">TT</th>
-                  <th className="px-2 py-2 text-center font-medium">Thời gian</th>
+                  <th className="px-2 py-2 text-center font-medium">{t("stressTest.colStatus")}</th>
+                  <th className="px-2 py-2 text-center font-medium">{t("stressTest.colTime")}</th>
                   <th className="px-2 py-2 text-center font-medium">MB/s</th>
-                  <th className={`px-2 py-2 text-center font-medium border-r ${admin.divider}`}>Heap</th>
-                  <th className="px-2 py-2 text-center font-medium">TT</th>
-                  <th className="px-2 py-2 text-center font-medium">Thời gian</th>
+                  <th className={`px-2 py-2 text-center font-medium border-r ${admin.divider}`}>{t("stressTest.colHeap")}</th>
+                  <th className="px-2 py-2 text-center font-medium">{t("stressTest.colStatus")}</th>
+                  <th className="px-2 py-2 text-center font-medium">{t("stressTest.colTime")}</th>
                   <th className="px-2 py-2 text-center font-medium">MB/s</th>
-                  <th className="px-2 py-2 text-center font-medium">Peak</th>
+                  <th className="px-2 py-2 text-center font-medium">{t("stressTest.colPeak")}</th>
                 </tr>
               </thead>
               <tbody className={admin.tableDivide}>
@@ -621,7 +608,7 @@ export default function StressTestPage() {
               (r.chunked.status === "oom" || r.chunked.status === "error")
           ) && (
             <div className={`px-4 sm:px-5 py-4 border-t ${admin.divider} space-y-2 bg-slate-50 dark:bg-black/20`}>
-              <p className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide dark:text-white/50">Chi tiết lỗi</p>
+              <p className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide dark:text-white/50">{t("stressTest.errorDetails")}</p>
               {rows.map((row) => (
                 <div key={`errs-${row.sizeMB}`} className="space-y-1.5">
                   {row.singleShot.errorMsg && (
@@ -641,134 +628,191 @@ export default function StressTestPage() {
         </div>
       )}
 
-      {/* Summary */}
-      {summary && (
-        <SummaryPanel summary={summary} />
-      )}
-
-      {/* Methodology */}
-      <MethodologyCard />
+      {summary && <SummaryPanel summary={summary} rows={rows} />}
     </div>
   );
+}
+
+function fmtSizeLabel(mb: number | null): string {
+  if (mb === null) return "—";
+  if (mb >= 1024) return `${mb / 1024} GB`;
+  return `${mb} MB`;
 }
 
 function SummaryPanel({
   summary,
+  rows,
 }: {
   summary: { maxSafeShot: number | null; maxSafeChunked: number | null };
+  rows: TestRow[];
 }) {
-  const fmtSize = (mb: number | null) => {
-    if (mb === null) return "< 10 MB";
-    if (mb >= 1024) return `${mb / 1024} GB`;
-    return `${mb} MB`;
-  };
-
+  const t = useT();
   const improvementFactor =
-    summary.maxSafeChunked !== null && summary.maxSafeShot !== null && summary.maxSafeShot > 0
-      ? (summary.maxSafeChunked / summary.maxSafeShot).toFixed(1)
+    summary.maxSafeChunked !== null &&
+    summary.maxSafeShot !== null &&
+    summary.maxSafeShot > 0
+      ? summary.maxSafeChunked / summary.maxSafeShot
       : null;
+
+  const shotPasses = rows.filter((r) => r.singleShot.status === "pass");
+  const chunkedPasses = rows.filter((r) => r.chunked.status === "pass");
+  const firstShotFail = rows.find(
+    (r) => r.singleShot.status === "oom" || r.singleShot.status === "error"
+  );
+  const firstChunkedFail = rows.find(
+    (r) => r.chunked.status === "oom" || r.chunked.status === "error"
+  );
+
+  const maxChunkedRow = summary.maxSafeChunked
+    ? rows.find((r) => r.sizeMB === summary.maxSafeChunked)
+    : undefined;
+
+  const largestTested = rows.length > 0 ? rows[rows.length - 1].sizeMB : null;
 
   return (
     <div className={`${surfaceCard} p-5 sm:p-6 space-y-5`}>
-      <h2 className={admin.sectionTitle}>Kết luận và khuyến nghị</h2>
+      <div>
+        <h2 className={admin.sectionTitle}>{t("stressTest.summaryTitle")}</h2>
+        <p className="text-xs text-slate-500 mt-1 dark:text-white/40">
+          {t("stressTest.summaryMeta", {
+            count: rows.length,
+            largest: fmtSizeLabel(largestTested),
+          })}
+        </p>
+      </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="rounded-xl border border-rose-500/25 bg-rose-950/25 p-4">
-          <p className="text-[10px] text-rose-400/90 font-bold uppercase tracking-wider mb-1">Single-shot</p>
-          <p className="text-2xl font-bold text-rose-200 tabular-nums">{fmtSize(summary.maxSafeShot)}</p>
-          <p className="text-xs text-slate-600 mt-2 leading-relaxed dark:text-white/45">
-            Ngưỡng an toàn tối đa. Vượt quá: trình duyệt dễ OOM vì plaintext + ciphertext trong RAM.
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="rounded-xl border border-rose-500/25 bg-rose-950/25 p-4 space-y-2">
+          <p className="text-[10px] text-rose-400/90 font-bold uppercase tracking-wider">
+            {t("stressTest.singleShotThreshold")}
+          </p>
+          <p className="text-2xl font-bold text-rose-200 tabular-nums">
+            {summary.maxSafeShot !== null ? fmtSizeLabel(summary.maxSafeShot) : t("stressTest.under10mb")}
+          </p>
+          <p className="text-xs text-slate-500 leading-relaxed dark:text-white/45">
+            {t("stressTest.singleShotDesc")}
+          </p>
+          <p className="text-[11px] text-rose-300/80">
+            {t("stressTest.passCount", { pass: shotPasses.length, total: rows.length })}
+            {firstShotFail
+              ? t("stressTest.oomFrom", { size: fmtSizeLabel(firstShotFail.sizeMB) })
+              : t("stressTest.noOom")}
           </p>
         </div>
 
-        <div className="rounded-xl border border-emerald-500/25 bg-emerald-950/20 p-4">
-          <p className="text-[10px] text-emerald-400/90 font-bold uppercase tracking-wider mb-1">
-            Chunked {CHUNK_SIZE_MB}MB
+        <div className="rounded-xl border border-emerald-500/25 bg-emerald-950/20 p-4 space-y-2">
+          <p className="text-[10px] text-emerald-400/90 font-bold uppercase tracking-wider">
+            {t("stressTest.chunkedThreshold", { mb: CHUNK_SIZE_MB })}
           </p>
-          <p className="text-2xl font-bold text-emerald-200 tabular-nums">{fmtSize(summary.maxSafeChunked)}</p>
-          <p className="text-xs text-slate-600 mt-2 leading-relaxed dark:text-white/45">
-            Peak RAM ≈ 2 × {CHUNK_SIZE_MB}MB. Phù hợp file rất lớn (GB).
+          <p className="text-2xl font-bold text-emerald-200 tabular-nums">
+            {summary.maxSafeChunked !== null ? fmtSizeLabel(summary.maxSafeChunked) : "—"}
+          </p>
+          <p className="text-xs text-slate-500 leading-relaxed dark:text-white/45">
+            {t("stressTest.chunkedDesc", { mb: CHUNK_SIZE_MB, peak: CHUNK_SIZE_MB * 2 })}
+          </p>
+          <p className="text-[11px] text-emerald-300/80">
+            {t("stressTest.passCount", { pass: chunkedPasses.length, total: rows.length })}
+            {firstChunkedFail
+              ? t("stressTest.oomFrom", { size: fmtSizeLabel(firstChunkedFail.sizeMB) })
+              : t("stressTest.allPass")}
+          </p>
+          {maxChunkedRow?.chunked.throughputMBps !== undefined && (
+            <p className="text-[11px] text-slate-500 dark:text-white/35">
+              {t("stressTest.speedAtMax", {
+                speed: formatMBps(maxChunkedRow.chunked.throughputMBps),
+                time: formatMs(maxChunkedRow.chunked.totalEncryptMs),
+              })}
+              {maxChunkedRow.chunked.chunkCount
+                ? t("stressTest.chunkCount", { count: maxChunkedRow.chunked.chunkCount })
+                : ""}
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-indigo-500/25 bg-indigo-950/30 p-4 space-y-2">
+          <p className="text-[10px] text-indigo-300/90 font-bold uppercase tracking-wider">
+            {t("stressTest.scalability")}
+          </p>
+          <p className="text-2xl font-bold text-indigo-200 tabular-nums">
+            {improvementFactor !== null ? `${improvementFactor.toFixed(1)}×` : "—"}
+          </p>
+          <p className="text-xs text-slate-500 leading-relaxed dark:text-white/45">
+            {improvementFactor !== null && improvementFactor > 1
+              ? t("stressTest.scalabilityBetter", { factor: improvementFactor.toFixed(1) })
+              : improvementFactor === 1
+                ? t("stressTest.scalabilitySame")
+                : t("stressTest.scalabilityInsufficient")}
           </p>
         </div>
       </div>
 
-      {improvementFactor && (
-        <div className="rounded-xl border border-indigo-500/25 bg-indigo-950/30 p-4 text-center">
-          <p className="text-[10px] text-indigo-300/90 font-bold uppercase tracking-wider mb-1">Cải thiện dung lượng tối đa</p>
-          <p className="text-3xl font-bold text-indigo-200 tabular-nums">{improvementFactor}×</p>
-          <p className="text-xs text-slate-600 mt-1 dark:text-white/40">Chunked hỗ trợ file lớn hơn ~{improvementFactor}× so với single-shot trên máy bạn</p>
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-white/[0.08] dark:bg-black/25">
+        <p className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide mb-3 dark:text-white/50">
+          {t("stressTest.quickCompare")}
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-slate-500 dark:text-white/40 border-b border-slate-200 dark:border-white/10">
+                <th className="text-left py-2 pr-3 font-medium">{t("stressTest.colSize")}</th>
+                <th className="text-center py-2 px-2 font-medium">Single-shot</th>
+                <th className="text-center py-2 px-2 font-medium">Chunked</th>
+                <th className="text-left py-2 pl-3 font-medium">{t("stressTest.adminNote")}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-white/[0.06]">
+              {rows.map((row) => {
+                const note =
+                  row.singleShot.status === "pass" && row.chunked.status === "pass"
+                    ? t("stressTest.bothOk")
+                    : row.singleShot.status === "oom" && row.chunked.status === "pass"
+                      ? t("stressTest.singleOomUseChunked")
+                      : row.singleShot.status === "skipped"
+                        ? t("stressTest.skippedSmallerOom")
+                        : row.chunked.status !== "pass"
+                          ? t("stressTest.checkRam")
+                          : "—";
+                return (
+                  <tr key={`sum-${row.sizeMB}`}>
+                    <td className="py-2 pr-3 font-medium text-slate-800 dark:text-white/80 tabular-nums">
+                      {fmtSizeLabel(row.sizeMB)}
+                    </td>
+                    <td className="py-2 px-2 text-center">
+                      <StatusBadge status={row.singleShot.status} />
+                    </td>
+                    <td className="py-2 px-2 text-center">
+                      <StatusBadge status={row.chunked.status} />
+                    </td>
+                    <td className="py-2 pl-3 text-slate-600 dark:text-white/45">{note}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
 
-      <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 space-y-2 dark:border-white/[0.08] dark:bg-black/25">
-        <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wider dark:text-white/45">Đã triển khai trong LockSend</p>
-        <ul className="space-y-2 text-xs text-slate-700 leading-relaxed dark:text-white/55">
-          <li className="flex gap-2">
-            <span className="text-emerald-400 shrink-0">✓</span>
-            <span>
-              <strong className="text-slate-900 dark:text-white/70">Chunked:</strong> {CHUNK_SIZE_MB}MB/chunk, nonce theo chunk.
-            </span>
+      <div className="rounded-xl border border-indigo-500/20 bg-indigo-950/20 px-4 py-3 space-y-2">
+        <p className="text-[11px] font-semibold text-indigo-300/90 uppercase tracking-wide">
+          {t("stressTest.locksendApply")}
+        </p>
+        <ul className="text-xs text-slate-600 space-y-1.5 leading-relaxed dark:text-white/55">
+          <li>
+            <strong className="text-slate-800 dark:text-white/75">Upload ≥ {CHUNK_SIZE_MB}MB:</strong>{" "}
+            {t("stressTest.uploadHint")}
           </li>
-          <li className="flex gap-2">
-            <span className="text-emerald-400 shrink-0">✓</span>
-            <span>
-              <strong className="text-slate-900 dark:text-white/70">Multipart upload</strong> Azure — không giữ toàn bộ ciphertext trong RAM.
-            </span>
+          <li>
+            <strong className="text-slate-800 dark:text-white/75">Download ≥ {CHUNK_SIZE_MB}MB:</strong>{" "}
+            {t("stressTest.downloadHint")}
           </li>
-          <li className="flex gap-2">
-            <span className="text-emerald-400 shrink-0">✓</span>
-            <span>
-              <strong className="text-slate-900 dark:text-white/70">Ed25519 manifest</strong> — ký metadata thay vì toàn bộ blob.
-            </span>
-          </li>
-          <li className="flex gap-2">
-            <span className="text-sky-400/80 shrink-0">→</span>
-            <span className="text-slate-500 dark:text-white/40">
-              <strong className="text-slate-700 dark:text-white/55">[Tương lai]</strong> Streaming download + decrypt.
-            </span>
+          <li>
+            <strong className="text-slate-800 dark:text-white/75">File &lt; {CHUNK_SIZE_MB}MB:</strong>{" "}
+            {t("stressTest.singleShotHint", {
+              size: summary.maxSafeShot !== null ? fmtSizeLabel(summary.maxSafeShot) : t("stressTest.undetermined"),
+            })}
           </li>
         </ul>
       </div>
-    </div>
-  );
-}
-
-function MethodologyCard() {
-  return (
-    <div className={`${surfaceCard} p-5 sm:p-6`}>
-      <h3 className={`${admin.sectionTitle} mb-3`}>Phương pháp kiểm thử</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 text-xs text-slate-600 leading-relaxed dark:text-white/45">
-        <div className="space-y-2">
-          <p className="font-semibold text-slate-800 text-[11px] uppercase tracking-wide dark:text-white/60">Dữ liệu test</p>
-          <p>
-            Plaintext = <code className="text-indigo-800 bg-indigo-50 px-1 rounded dark:text-indigo-300/90 dark:bg-black/40">new Uint8Array(N)</code> (zero-filled),
-            không dùng PRNG.
-          </p>
-          <p>
-            AES = <code className="text-indigo-800 bg-indigo-50 px-1 rounded dark:text-indigo-300/90 dark:bg-black/40">generateKey(AES-GCM 256)</code> mỗi lần.
-          </p>
-          <p>Nonce: 12 byte ngẫu nhiên (single-shot) / baseNonce + index chunk (chunked).</p>
-        </div>
-        <div className="space-y-2">
-          <p className="font-semibold text-slate-800 text-[11px] uppercase tracking-wide dark:text-white/60">Đo lường</p>
-          <p>
-            <strong className="text-slate-800 dark:text-white/55">Thời gian:</strong>{" "}
-            <code className="text-indigo-800 bg-indigo-50 px-1 rounded dark:text-indigo-300/90 dark:bg-black/40">performance.now()</code> quanh{" "}
-            <code className="text-indigo-800 bg-indigo-50 px-1 rounded dark:text-indigo-300/90 dark:bg-black/40">encrypt</code>.
-          </p>
-          <p>
-            <strong className="text-slate-800 dark:text-white/55">Heap:</strong>{" "}
-            <code className="text-indigo-800 bg-indigo-50 px-1 rounded dark:text-indigo-300/90 dark:bg-black/40">performance.memory</code> (chủ yếu Chrome).
-          </p>
-          <p>
-            <strong className="text-slate-800 dark:text-white/55">OOM:</strong> <code className="text-indigo-800 bg-indigo-50 px-1 rounded dark:text-indigo-300/90 dark:bg-black/40">RangeError</code>{" "}
-            hoặc lỗi WebCrypto.
-          </p>
-        </div>
-      </div>
-      <p className="mt-4 text-[11px] text-slate-500 dark:text-white/30">
-        Kết quả phụ thuộc RAM, CPU, trình duyệt và tab đang mở. Nên chạy trong tab riêng.
-      </p>
     </div>
   );
 }

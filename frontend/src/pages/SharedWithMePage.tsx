@@ -6,6 +6,7 @@ import {
 } from "../utils/api";
 import { useDownload } from "../hooks/useDownload";
 import { LoadingSpinner } from "../components/LoadingSpinner";
+import { useT } from "../i18n/context";
 
 import { surfaceCard, btn } from "../styles/theme";
 
@@ -32,11 +33,12 @@ function FileIcon() {
 }
 
 function DownloadProgress({ stage, fileName }: { stage: string; fileName: string }) {
+  const t = useT();
   if (stage === "idle" || stage === "done") return null;
   const label =
-    stage === "downloading" ? "Đang tải…" :
-    stage === "decrypting" ? "Đang giải mã…" :
-    stage === "error" ? "Lỗi" : "";
+    stage === "downloading" ? t("shared.downloading") :
+    stage === "decrypting" ? t("shared.decrypting") :
+    stage === "error" ? t("shared.error") : "";
   return (
     <span className="flex items-center gap-1.5 text-[11px] text-indigo-300">
       <LoadingSpinner size="sm" />
@@ -46,6 +48,7 @@ function DownloadProgress({ stage, fileName }: { stage: string; fileName: string
 }
 
 function SharedFileCard({ item }: { item: SharedFileItem }) {
+  const t = useT();
   const { stage, error, fileName, downloadAndDecrypt, reset } = useDownload();
   const [fetchingUrl, setFetchingUrl] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
@@ -63,7 +66,7 @@ function SharedFileCard({ item }: { item: SharedFileItem }) {
       }
       await downloadAndDecrypt(sas.sas_url, recipientMetadata);
     } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Không lấy được link tải";
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? t("shared.linkFailed");
       setUrlError(msg);
     } finally {
       setFetchingUrl(false);
@@ -83,24 +86,23 @@ function SharedFileCard({ item }: { item: SharedFileItem }) {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
             <span className="text-[11px] text-white/35">{formatFileSize(item.file_size_bytes)}</span>
             <span className="text-[11px] text-white/35">
-              Nhận lúc {formatDate(item.granted_at)}
+              {t("shared.receivedAt", { date: formatDate(item.granted_at) })}
             </span>
           </div>
           {(item.sender_name || item.sender_email) && (
             <p className="text-[11px] text-indigo-300/70 mt-0.5">
-              Từ: {item.sender_name || item.sender_email}
+              {t("shared.from", { name: item.sender_name || item.sender_email || "" })}
             </p>
           )}
         </div>
       </div>
 
-      {/* Status */}
       {stage === "done" && (
         <div className="flex items-center gap-2 text-[12px] text-emerald-400 bg-emerald-500/8 border border-emerald-500/15 rounded-xl px-3 py-2">
           <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
-          Đã tải &amp; giải mã: {fileName}
+          {t("shared.downloaded", { name: fileName })}
           <button onClick={reset} className="ml-auto text-white/30 hover:text-white/60 transition">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -135,7 +137,7 @@ function SharedFileCard({ item }: { item: SharedFileItem }) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
             )}
-            {busy ? "Đang xử lý…" : "Tải & Giải mã"}
+            {busy ? t("shared.processing") : t("shared.downloadDecrypt")}
           </button>
         )}
       </div>
@@ -144,6 +146,7 @@ function SharedFileCard({ item }: { item: SharedFileItem }) {
 }
 
 export default function SharedWithMePage() {
+  const t = useT();
   const [files, setFiles] = useState<SharedFileItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -154,7 +157,7 @@ export default function SharedWithMePage() {
     getSharedWithMe()
       .then(setFiles)
       .catch((e: unknown) => {
-        const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Không tải được danh sách file";
+        const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? t("shared.loadFailed");
         setError(msg);
       })
       .finally(() => setLoading(false));
@@ -166,8 +169,8 @@ export default function SharedWithMePage() {
     <div className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Hộp nhận</h1>
-          <p className="text-sm text-white/40 mt-1">File được chia sẻ cho bạn</p>
+          <h1 className="text-2xl font-bold text-white tracking-tight">{t("shared.title")}</h1>
+          <p className="text-sm text-white/40 mt-1">{t("shared.subtitle")}</p>
         </div>
         <button
           onClick={loadFiles}
@@ -179,14 +182,14 @@ export default function SharedWithMePage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
           )}
-          Tải lại
+          {t("shared.refresh")}
         </button>
       </div>
 
       {loading && (
         <div className={`${surfaceCard} p-12 flex flex-col items-center gap-3`}>
           <LoadingSpinner size="lg" />
-          <p className="text-sm text-white/40">Đang tải…</p>
+          <p className="text-sm text-white/40">{t("shared.loading")}</p>
         </div>
       )}
 
@@ -206,16 +209,14 @@ export default function SharedWithMePage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
             </svg>
           </div>
-          <p className="text-white/50 text-sm">Chưa có file nào được chia sẻ cho bạn.</p>
-          <p className="text-white/25 text-[12px]">
-            Khi ai đó chia sẻ file với bạn, chúng sẽ xuất hiện tại đây.
-          </p>
+          <p className="text-white/50 text-sm">{t("shared.empty")}</p>
+          <p className="text-white/25 text-[12px]">{t("shared.emptyHint")}</p>
         </div>
       )}
 
       {!loading && files.length > 0 && (
         <div className="space-y-3">
-          <p className="text-sm text-white/40">{files.length} file được chia sẻ</p>
+          <p className="text-sm text-white/40">{t("shared.sharedCount", { count: files.length })}</p>
           {files.map((f) => (
             <SharedFileCard key={f.file_id} item={f} />
           ))}

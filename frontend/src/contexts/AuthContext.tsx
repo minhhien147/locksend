@@ -22,8 +22,16 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { authApi, changePasswordApi, setAccessToken, updateProfileApi } from "../utils/api";
+import {
+  authApi,
+  changePasswordApi,
+  setAccessToken,
+  updateProfileApi,
+  updateProfileEmailApi,
+  type TokenResponse,
+} from "../utils/api";
 import { clearAll as clearKeyVault } from "../utils/keyVault";
+import { clearPageDraft } from "../utils/pageDraft";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -32,17 +40,31 @@ export interface AuthUser {
   email: string;
   display_name: string | null;
   role: string;
+  email_verified: boolean;
+}
+
+function userFromToken(res: TokenResponse): AuthUser {
+  return {
+    user_id: res.user_id,
+    email: res.email,
+    display_name: res.display_name,
+    role: res.role,
+    email_verified: res.email_verified ?? true,
+  };
 }
 
 interface AuthContextValue {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<void>;
-  register: (username: string, password: string, displayName?: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<TokenResponse>;
+  loginWithGoogle: (credential: string) => Promise<TokenResponse>;
+  register: (username: string, password: string, displayName?: string) => Promise<TokenResponse>;
   logout: () => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<void>;
+  updateEmail: (email: string) => Promise<TokenResponse>;
+  applyTokenResponse: (res: TokenResponse) => void;
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -62,12 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .refresh()
       .then((res) => {
         setAccessToken(res.access_token);
-        setUser({
-          user_id: res.user_id,
-          email: res.email,
-          display_name: res.display_name,
-          role: res.role,
-        });
+        setUser(userFromToken(res));
       })
       .catch(() => {
         // Cookie không còn hoặc đã expire — cần đăng nhập lại
@@ -81,12 +98,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (username: string, password: string) => {
     const res = await authApi.login(username, password);
     setAccessToken(res.access_token);
-    setUser({
-      user_id: res.user_id,
-      email: res.email,
-      display_name: res.display_name,
-      role: res.role,
-    });
+    setUser(userFromToken(res));
+    return res;
+  }, []);
+
+  const loginWithGoogle = useCallback(async (credential: string) => {
+    const res = await authApi.loginWithGoogle(credential);
+    setAccessToken(res.access_token);
+    setUser(userFromToken(res));
+    return res;
   }, []);
 
   // ── Register ────────────────────────────────────────────────────────────────
@@ -94,12 +114,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (username: string, password: string, displayName?: string) => {
       const res = await authApi.register(username, password, displayName);
       setAccessToken(res.access_token);
-      setUser({
-        user_id: res.user_id,
-        email: res.email,
-        display_name: res.display_name,
-        role: res.role,
-      });
+      setUser(userFromToken(res));
+      return res;
     },
     []
   );
@@ -110,16 +126,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAccessToken(null);
     setUser(null);
     clearKeyVault(); // xóa private key khỏi RAM + sessionStorage
+    clearPageDraft("profile-settings"); // draft cũ (không theo user)
   }, []);
 
-  const applyTokenResponse = useCallback((res: Awaited<ReturnType<typeof changePasswordApi>>) => {
+  const applyTokenResponse = useCallback((res: TokenResponse) => {
     setAccessToken(res.access_token);
-    setUser({
-      user_id: res.user_id,
-      email: res.email,
-      display_name: res.display_name,
-      role: res.role,
-    });
+    setUser(userFromToken(res));
   }, []);
 
   const changePassword = useCallback(
@@ -138,18 +150,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [applyTokenResponse]
   );
 
+  const updateEmail = useCallback(
+    async (email: string) => {
+      const res = await updateProfileEmailApi(email);
+      applyTokenResponse(res);
+      return res;
+    },
+    [applyTokenResponse]
+  );
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
       isAuthenticated: !!user,
       isLoading,
       login,
+      loginWithGoogle,
       register,
       logout,
       changePassword,
       updateDisplayName,
+      updateEmail,
+      applyTokenResponse,
     }),
-    [user, isLoading, login, register, logout, changePassword, updateDisplayName]
+    [user, isLoading, login, loginWithGoogle, register, logout, changePassword, updateDisplayName, updateEmail, applyTokenResponse]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

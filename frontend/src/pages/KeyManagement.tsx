@@ -31,7 +31,7 @@ import {
   clearAll,
   onLock,
 } from "../utils/keyVault";
-import { fetchServerEncryptedBlob } from "../utils/keySync";
+import { fetchServerEncryptedBlob, syncPublicKeysToServer } from "../utils/keySync";
 import {
   storeMyPublicKey,
   fetchMyEncryptedKeyBlob,
@@ -47,6 +47,7 @@ import {
   btn,
   header,
 } from "../styles/theme";
+import { useT } from "../i18n/context";
 
 type PageState =
   | { phase: "loading" }
@@ -57,9 +58,18 @@ type PageState =
 
 type DangerStep = null | "replace-keys" | "delete-keys";
 
+type KeypairMeta = {
+  expires_at: string | null;
+  days_left: number | null;
+  expired: boolean;
+  expiring_soon: boolean;
+  key_version?: number;
+};
+
 const KEYS_PAGE_KEY = "keys";
 
 export default function KeyManagement() {
+  const t = useT();
   const [pageState, setPageState] = useState<PageState>({ phase: "loading" });
   const [dangerStep, setDangerStep] = useDraftState<DangerStep>(
     KEYS_PAGE_KEY,
@@ -71,6 +81,7 @@ export default function KeyManagement() {
   const [copied, setCopied] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [keypairMeta, setKeypairMeta] = useState<KeypairMeta | null>(null);
 
   // Form fields — chỉ RAM (không ghi passphrase ra sessionStorage)
   const [newPassphrase, setNewPassphrase] = useDraftState(KEYS_PAGE_KEY, "newPassphrase", "", "memory");
@@ -113,20 +124,36 @@ export default function KeyManagement() {
 
   const statusTimerRef = useRef<number | null>(null);
 
+  async function loadKeypairMeta() {
+    try {
+      const data = await fetchMyEncryptedKeyBlob();
+      setKeypairMeta({
+        expires_at: data.keypair_expires_at ?? null,
+        days_left: data.keypair_days_left ?? null,
+        expired: data.keypair_expired ?? false,
+        expiring_soon: data.keypair_expiring_soon ?? false,
+        key_version: data.key_version,
+      });
+      return data;
+    } catch {
+      setKeypairMeta(null);
+      return null;
+    }
+  }
+
   // ── Load initial state ───────────────────────────────────────────────────────
 
   async function loadState() {
     setPageState({ phase: "loading" });
     try {
+      const data = await loadKeypairMeta();
       // Check vault first (F5 already restored)
       if (isUnlocked()) {
         const k = getKeys()!;
         setPageState({ phase: "unlocked", keys: k });
         return;
       }
-      // Fetch server blob
-      const data = await fetchMyEncryptedKeyBlob();
-      if (!data.has_keys) {
+      if (!data?.has_keys) {
         setPageState({ phase: "no_keys", hasLegacy: hasLegacyLocalStorageKey() });
       } else if (!data.encrypted_key_blob) {
         setPageState({ phase: "blob_missing", hasLegacy: hasLegacyLocalStorageKey() });
@@ -180,7 +207,7 @@ export default function KeyManagement() {
     encryptedBlob: string
   ): Promise<void> {
     const externalId = getMyExternalId();
-    if (!externalId) throw new Error("Không lấy được user id");
+    if (!externalId) throw new Error(t("keys.userIdFailed"));
     await storeMyPublicKey({
       externalId,
       publicKeyX25519: toBase64(keys.x25519.publicKey),
@@ -199,9 +226,9 @@ export default function KeyManagement() {
 
   async function handleGenerate() {
     const err = validatePassphrase(newPassphrase);
-    if (err) { showStatus(err, true); return; }
+    if (err) { showStatus(t(`errors.${err}`, { n: 8 }), true); return; }
     if (newPassphrase !== confirmPassphrase) {
-      showStatus("Passphrase xác nhận không khớp.", true);
+      showStatus(t("keys.confirmMismatch"), true);
       return;
     }
     setBusy(true);
@@ -215,9 +242,10 @@ export default function KeyManagement() {
       setConfirmPassphrase("");
       setDangerStep(null);
       setPageState({ phase: "unlocked", keys: { x25519: x25519Keys, ed25519: ed25519Keys } });
-      showStatus("Keypair đã được tạo, mã hóa và lưu lên server.");
+      await loadKeypairMeta();
+      showStatus(t("keys.publicKeySynced"));
     } catch (e) {
-      showStatus(e instanceof Error ? e.message : "Không tạo được keypair.", true);
+      showStatus(e instanceof Error ? e.message : t("keys.createFailed"), true);
     } finally {
       setBusy(false);
     }
@@ -231,11 +259,12 @@ export default function KeyManagement() {
       await setKeys(keys);
       setUnlockPassphrase("");
       setPageState({ phase: "unlocked", keys });
-      showStatus("Đã mở khóa keypair trong phiên này.");
+      const sync = await syncPublicKeysToServer();
+      showStatus(sync.ok ? t("keys.publicKeySynced") : t("keys.unlockedSession"));
     } catch (e) {
       const code = e instanceof Error ? e.message : "";
       showStatus(
-        code === "WRONG_PASSPHRASE" ? "Passphrase không đúng." : "Không mở khóa được.",
+        code === "WRONG_PASSPHRASE" ? t("keys.wrongPassphrase") : t("keys.unlockFailed"),
         true
       );
     } finally {
@@ -263,17 +292,17 @@ export default function KeyManagement() {
   async function handleChangePassphrase() {
     if (pageState.phase !== "unlocked") return;
     if (!currentChangePassphrase) {
-      showStatus("Nhập passphrase hiện tại.", true);
+      showStatus(t("keys.enterCurrentPassphrase"), true);
       return;
     }
     const err = validatePassphrase(changePassphraseVal);
-    if (err) { showStatus(err, true); return; }
+    if (err) { showStatus(t(`errors.${err}`, { n: 8 }), true); return; }
     if (changePassphraseVal !== changePhraseConfirm) {
-      showStatus("Passphrase mới xác nhận không khớp.", true);
+      showStatus(t("keys.newConfirmMismatch"), true);
       return;
     }
     if (changePassphraseVal === currentChangePassphrase) {
-      showStatus("Passphrase mới phải khác passphrase hiện tại.", true);
+      showStatus(t("keys.newMustDiffer"), true);
       return;
     }
     setBusy(true);
@@ -283,7 +312,7 @@ export default function KeyManagement() {
         pageState.keys
       );
       if (!currentOk) {
-        showStatus("Passphrase hiện tại không đúng.", true);
+        showStatus(t("keys.currentWrong"), true);
         return;
       }
       const blob = await encryptKeyBlob(
@@ -296,9 +325,9 @@ export default function KeyManagement() {
       setCurrentChangePassphrase("");
       setChangePassphraseVal("");
       setChangePhraseConfirm("");
-      showStatus("Đã đổi passphrase.");
+      showStatus(t("keys.passphraseChanged"));
     } catch (e) {
-      showStatus(e instanceof Error ? e.message : "Đổi passphrase thất bại.", true);
+      showStatus(e instanceof Error ? e.message : t("keys.changeFailed"), true);
     } finally {
       setBusy(false);
     }
@@ -309,7 +338,7 @@ export default function KeyManagement() {
     setSyncing(true);
     try {
       const externalId = getMyExternalId();
-      if (!externalId) throw new Error("Không lấy được user id");
+      if (!externalId) throw new Error(t("keys.userIdFailed"));
       const encryptedKeyBlob = await fetchServerEncryptedBlob();
       await storeMyPublicKey({
         externalId,
@@ -317,9 +346,9 @@ export default function KeyManagement() {
         publicKeyEd25519: toBase64(pageState.keys.ed25519.publicKey),
         ...(encryptedKeyBlob ? { encryptedKeyBlob } : {}),
       });
-      showStatus("Public key đã được đồng bộ lên server.");
+      showStatus(t("keys.publicKeySynced"));
     } catch {
-      showStatus("Đồng bộ thất bại. Kiểm tra kết nối và thử lại.", true);
+      showStatus(t("keys.syncFailed"), true);
     } finally {
       setSyncing(false);
     }
@@ -327,7 +356,7 @@ export default function KeyManagement() {
 
   function handleLock() {
     lockKeys();
-    showStatus("Đã khóa keypair khỏi bộ nhớ phiên.");
+    showStatus(t("keys.lockedFromMemory"));
     void loadState();
   }
 
@@ -336,7 +365,7 @@ export default function KeyManagement() {
     clearAll();
     clearLegacyLocalStorage();
     void loadState();
-    showStatus("Đã xóa key khỏi phiên.");
+    showStatus(t("keys.clearedFromSession"));
   }
 
   // ── Legacy migration ─────────────────────────────────────────────────────────
@@ -351,13 +380,13 @@ export default function KeyManagement() {
       clearLegacyLocalStorage();
       setLegacyPassphrase("");
       setPageState({ phase: "unlocked", keys });
-      showStatus("Đã migrate keypair lên server thành công! localStorage đã được xóa.");
+      showStatus(t("keys.publicKeySynced"));
     } catch (e) {
       const code = e instanceof Error ? e.message : "";
       showStatus(
-        code === "WRONG_PASSPHRASE" ? "Passphrase không đúng." :
-        code === "NO_LEGACY" ? "Không tìm thấy key cũ." :
-        "Migration thất bại.",
+        code === "WRONG_PASSPHRASE" ? t("keys.wrongPassphrase") :
+        code === "NO_LEGACY" ? t("keys.noLegacy") :
+        t("keys.migrateFailed"),
         true
       );
     } finally {
@@ -375,8 +404,41 @@ export default function KeyManagement() {
   return (
     <div className={pageWrap}>
       <header>
-        <h1 className={`text-lg font-bold ${text.primary} tracking-tight`}>Keys</h1>
+        <h1 className={`text-lg font-bold ${text.primary} tracking-tight`}>{t("keys.title")}</h1>
       </header>
+
+      {keypairMeta?.expires_at && pageState.phase !== "loading" && pageState.phase !== "no_keys" && (
+        <div
+          className={`rounded-xl border px-4 py-3 text-sm ${
+            keypairMeta.expired
+              ? "border-rose-400/40 bg-rose-100/80 text-rose-900 dark:border-rose-500/25 dark:bg-rose-500/8 dark:text-rose-200"
+              : keypairMeta.expiring_soon
+                ? "border-amber-400/40 bg-amber-100/80 text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/8 dark:text-amber-200"
+                : "border-slate-200 bg-slate-50 text-slate-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-white/80"
+          }`}
+        >
+          {keypairMeta.expired ? (
+            <p>
+              <strong>{t("keys.expired")}</strong>{" "}
+              {t("keys.expiredHint", { date: keypairMeta.expires_at.slice(0, 10) })}
+            </p>
+          ) : keypairMeta.expiring_soon ? (
+            <p>
+              {t("keys.expiringSoon")}{" "}
+              <strong>{t("keys.expiringDays", { days: keypairMeta.days_left ?? 0 })}</strong>{" "}
+              {t("keys.expiringOn", { date: keypairMeta.expires_at.slice(0, 10) })}
+            </p>
+          ) : (
+            <p>
+              {t("keys.expiresLabel")} <strong>{keypairMeta.expires_at.slice(0, 10)}</strong>
+              {keypairMeta.days_left != null &&
+                ` ${t("keys.daysLeft", { days: keypairMeta.days_left })}`}
+              {keypairMeta.key_version != null &&
+                ` · ${t("keys.version", { version: keypairMeta.key_version })}`}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Loading */}
       {pageState.phase === "loading" && (
@@ -390,28 +452,28 @@ export default function KeyManagement() {
         <div className="space-y-4">
           <div className="rounded-xl border border-rose-400/40 bg-rose-100/80 px-4 py-4 space-y-2 dark:border-rose-500/25 dark:bg-rose-500/8">
             <p className="text-sm font-medium text-rose-900 dark:text-rose-200">
-              Server có public key nhưng thiếu blob mã hóa (passphrase).
+              {t("keys.blobMissingTitle")}
             </p>
             <p className={`text-xs ${text.secondary}`}>
-              Không tạo keypair mới — sẽ mất quyền giải mã file trong kho. Dùng Migrate nếu còn key cũ trong trình duyệt, hoặc mở khóa bằng modal Passphrase nếu blob vừa được khôi phục.
+              {t("keys.blobMissingHintExtended")}
             </p>
             <button
               type="button"
               onClick={() => void loadState()}
               className={`text-xs font-medium underline ${text.secondary} hover:no-underline`}
             >
-              Tải lại trạng thái
+              {t("keys.reloadState")}
             </button>
           </div>
           {pageState.hasLegacy && (
             <div className="rounded-xl border border-amber-400/40 bg-amber-100/80 px-4 py-4 space-y-3 dark:border-amber-500/25 dark:bg-amber-500/8">
-              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">Key cũ (localStorage)</p>
+              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">{t("keys.legacyTitle")}</p>
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   type="password"
                   value={legacyPassphrase}
                   onChange={(e) => setLegacyPassphrase(e.target.value)}
-                  placeholder="Passphrase của key cũ"
+                  placeholder={t("keys.legacyPassphrase")}
                   autoComplete="current-password"
                   disabled={busy}
                   className={`flex-1 ${inputBase}`}
@@ -422,7 +484,7 @@ export default function KeyManagement() {
                   disabled={busy || !legacyPassphrase}
                   className="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold bg-amber-200/80 border border-amber-400/50 text-amber-900 disabled:opacity-40 dark:bg-amber-500/20 dark:border-amber-500/30 dark:text-amber-200"
                 >
-                  Migrate
+                  {t("keys.migrate")}
                 </button>
               </div>
             </div>
@@ -436,13 +498,13 @@ export default function KeyManagement() {
           {/* Legacy migration banner */}
           {pageState.hasLegacy && (
             <div className="rounded-xl border border-amber-400/40 bg-amber-100/80 px-4 py-4 space-y-3 dark:border-amber-500/25 dark:bg-amber-500/8">
-              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">Key cũ (localStorage)</p>
+              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">{t("keys.legacyTitle")}</p>
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   type="password"
                   value={legacyPassphrase}
                   onChange={(e) => setLegacyPassphrase(e.target.value)}
-                  placeholder="Passphrase của key cũ"
+                  placeholder={t("keys.legacyPassphrase")}
                   autoComplete="current-password"
                   disabled={busy}
                   className={`flex-1 ${inputBase}`}
@@ -453,7 +515,7 @@ export default function KeyManagement() {
                   disabled={busy || !legacyPassphrase}
                   className="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold bg-amber-200/80 border border-amber-400/50 text-amber-900 disabled:opacity-40 dark:bg-amber-500/20 dark:border-amber-500/30 dark:text-amber-200"
                 >
-                  Migrate
+                  {t("keys.migrate")}
                 </button>
               </div>
             </div>
@@ -477,7 +539,7 @@ export default function KeyManagement() {
                   disabled={busy || !newPassphrase}
                   className={`${btnBlockPrimary} disabled:opacity-40`}
                 >
-                  Tạo Keypair
+                  {t("keys.create")}
                 </button>
               </>
             ) : null}
@@ -495,7 +557,7 @@ export default function KeyManagement() {
             onPassphraseChange={setUnlockPassphrase}
             onConfirmChange={() => {}}
             showConfirm={false}
-            passphraseLabel="Passphrase"
+            passphraseLabel={t("keys.passphrase")}
             disabled={busy}
           />
           <button
@@ -504,7 +566,7 @@ export default function KeyManagement() {
             disabled={busy || !unlockPassphrase}
             className={`${btnBlockPrimary} disabled:opacity-40`}
           >
-            Mở khóa
+            {t("keys.unlock")}
           </button>
 
           {/* Legacy migration in locked state */}
@@ -514,7 +576,7 @@ export default function KeyManagement() {
               onClick={() => clearLegacyLocalStorage()}
               className="text-xs text-amber-700 dark:text-amber-300/80 underline hover:no-underline"
             >
-              Xóa key cũ (localStorage)
+              {t("keys.clearLegacyKey")}
             </button>
           )}
         </div>
@@ -544,19 +606,19 @@ export default function KeyManagement() {
             <div
               className={`flex items-center justify-between gap-2 pb-2 border-b ${header.divider}`}
             >
-              <span className={`text-sm font-medium ${text.primary}`}>Quản lý phiên</span>
+              <span className={`text-sm font-medium ${text.primary}`}>{t("keys.sessionMgmt")}</span>
               <button
                 type="button"
                 onClick={() => void handleSyncToServer()}
                 disabled={syncing || dangerStep !== null}
                 className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-medium ${btn.secondary} disabled:opacity-50`}
               >
-                {syncing ? "…" : "Đồng bộ"}
+                {syncing ? "…" : t("common.sync")}
               </button>
             </div>
 
             <section className="space-y-2">
-              <h3 className={`text-xs font-medium ${text.muted}`}>Đổi passphrase</h3>
+              <h3 className={`text-xs font-medium ${text.muted}`}>{t("keys.changePassphrase")}</h3>
               <ChangePassphraseFields
                 compact
                 current={currentChangePassphrase}
@@ -578,12 +640,12 @@ export default function KeyManagement() {
                 }
                 className={`w-full ${btn.primary} disabled:opacity-40`}
               >
-                Cập nhật
+                {t("keys.update")}
               </button>
             </section>
 
             <section className={`space-y-2 pt-1 border-t ${header.divider}`}>
-              <h3 className={`text-xs font-medium ${text.muted}`}>Thao tác</h3>
+              <h3 className={`text-xs font-medium ${text.muted}`}>{t("keys.actions")}</h3>
               <div className="grid grid-cols-3 gap-1.5">
                 <button
                   type="button"
@@ -591,14 +653,14 @@ export default function KeyManagement() {
                   disabled={dangerStep !== null}
                   className={`${btnGridSm} ${btn.secondary} disabled:opacity-40`}
                 >
-                  Keypair mới
+                  {t("keys.newKeypair")}
                 </button>
                 <button
                   type="button"
                   onClick={handleLock}
                   className={`${btnGridSm} ${btn.secondary}`}
                 >
-                  Khóa phiên
+                  {t("keys.lockSession")}
                 </button>
                 <button
                   type="button"
@@ -606,7 +668,7 @@ export default function KeyManagement() {
                   disabled={dangerStep !== null}
                   className={`${btnGridSm} ${btn.danger} disabled:opacity-40`}
                 >
-                  Xóa session
+                  {t("keys.deleteSession")}
                 </button>
               </div>
             </section>
@@ -614,7 +676,7 @@ export default function KeyManagement() {
             {/* Danger: replace keys */}
             {dangerStep === "replace-keys" && (
               <div className="rounded-lg border border-amber-400/40 bg-amber-100/80 px-3 py-3 space-y-2.5 dark:border-amber-500/25 dark:bg-amber-500/8">
-                <p className="text-sm text-amber-900 dark:text-amber-200/95">Thay keypair?</p>
+                <p className="text-sm text-amber-900 dark:text-amber-200/95">{t("keys.confirmReplaceShort")}</p>
                 <PassphraseFields
                   passphrase={newPassphrase}
                   confirm={confirmPassphrase}
@@ -624,10 +686,10 @@ export default function KeyManagement() {
                 />
                 <div className="flex gap-2">
                   <button type="button" onClick={() => setDangerStep(null)} className={`flex-1 ${btnCompactGhost}`}>
-                    Huỷ
+                    {t("common.cancel")}
                   </button>
                   <button type="button" onClick={() => void handleGenerate()} className={`flex-1 ${btn.primary}`}>
-                    Xác nhận
+                    {t("common.confirm")}
                   </button>
                 </div>
               </div>
@@ -635,13 +697,13 @@ export default function KeyManagement() {
 
             {dangerStep === "delete-keys" && (
               <div className="rounded-lg border border-rose-400/40 bg-rose-100/70 px-3 py-3 space-y-2.5 dark:border-rose-500/25 dark:bg-rose-950/30">
-                <p className="text-sm text-rose-800 dark:text-rose-200/95">Xóa key khỏi phiên?</p>
+                <p className="text-sm text-rose-800 dark:text-rose-200/95">{t("keys.confirmDelete")}</p>
                 <div className="flex gap-2">
                   <button type="button" onClick={() => setDangerStep(null)} className={`flex-1 ${btnCompactGhost}`}>
-                    Huỷ
+                    {t("common.cancel")}
                   </button>
                   <button type="button" onClick={handleClear} className={`flex-1 ${btnCompactDangerSolid}`}>
-                    Xóa
+                    {t("common.delete")}
                   </button>
                 </div>
               </div>
@@ -723,8 +785,8 @@ function PassphraseFields({
   onConfirmChange,
   disabled,
   showConfirm = true,
-  passphraseLabel = "Passphrase",
-  confirmLabel = "Xác nhận",
+  passphraseLabel,
+  confirmLabel,
   compact,
 }: {
   passphrase: string;
@@ -737,11 +799,14 @@ function PassphraseFields({
   confirmLabel?: string;
   compact?: boolean;
 }) {
+  const t = useT();
+  const pLabel = passphraseLabel ?? t("keys.passphrase");
+  const cLabel = confirmLabel ?? t("keys.confirmLabel");
   return (
     <div className={compact ? "space-y-1.5" : "space-y-2"}>
       <PasswordInput
         compact={compact}
-        labelText={passphraseLabel}
+        labelText={pLabel}
         value={passphrase}
         onChange={onPassphraseChange}
         disabled={disabled}
@@ -750,7 +815,7 @@ function PassphraseFields({
       {showConfirm && (
         <PasswordInput
           compact={compact}
-          labelText={confirmLabel}
+          labelText={cLabel}
           value={confirm}
           onChange={onConfirmChange}
           disabled={disabled}
@@ -780,12 +845,13 @@ function ChangePassphraseFields({
   disabled?: boolean;
   compact?: boolean;
 }) {
+  const t = useT();
   const gap = compact ? "space-y-1.5" : "space-y-2";
   return (
     <div className={gap}>
       <PasswordInput
         compact={compact}
-        labelText="Passphrase hiện tại"
+        labelText={t("keys.currentPassphrase")}
         value={current}
         onChange={onCurrentChange}
         disabled={disabled}
@@ -793,7 +859,7 @@ function ChangePassphraseFields({
       />
       <PasswordInput
         compact={compact}
-        labelText="Passphrase mới"
+        labelText={t("keys.newPassphrase")}
         value={next}
         onChange={onNextChange}
         disabled={disabled}
@@ -801,7 +867,7 @@ function ChangePassphraseFields({
       />
       <PasswordInput
         compact={compact}
-        labelText="Xác nhận mới"
+        labelText={t("keys.confirmNew")}
         value={confirm}
         onChange={onConfirmChange}
         disabled={disabled}
@@ -817,6 +883,7 @@ function KeyBlock({
   title: string; accent: "indigo" | "violet";
   value: string; copied: boolean; onCopy: () => void;
 }) {
+  const t = useT();
   const ring = accent === "indigo" ? "ring-indigo-400/20" : "ring-violet-400/20";
   const dot = accent === "indigo" ? "bg-indigo-400" : "bg-violet-400";
   const labelColor =
@@ -827,7 +894,7 @@ function KeyBlock({
         <div className="min-w-0 flex items-center gap-1.5">
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
           <span className={`text-xs font-semibold ${labelColor}`}>{title}</span>
-          <span className={`text-[10px] ${text.faint}`}>public</span>
+          <span className={`text-[10px] ${text.faint}`}>{t("keys.publicKey")}</span>
         </div>
         <button type="button" onClick={onCopy}
           className={`shrink-0 text-xs font-medium px-2 py-1 rounded-md border transition ${
@@ -837,7 +904,7 @@ function KeyBlock({
                 ? "border-indigo-400/45 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-500/25 dark:text-indigo-400/90 dark:hover:bg-indigo-500/15"
                 : "border-violet-400/45 text-violet-700 hover:bg-violet-100 dark:border-violet-500/25 dark:text-violet-400/90 dark:hover:bg-violet-500/15"
           }`}>
-          {copied ? "Đã copy" : "Copy"}
+          {copied ? t("common.copied") : t("common.copy")}
         </button>
       </div>
       <div className={`${keyField} flex-1 min-h-[3.25rem] py-2.5 text-[12px] leading-relaxed`}>

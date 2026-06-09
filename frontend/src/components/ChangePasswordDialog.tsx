@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { surfaceCard, inputBase, text, label, btn } from "../styles/theme";
 import Alert from "./ui/Alert";
+import { translateError, useT } from "../i18n/context";
 
 interface Props {
   open: boolean;
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export default function ChangePasswordDialog({ open, onClose, onSubmit }: Props) {
+  const t = useT();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -33,11 +35,11 @@ export default function ChangePasswordDialog({ open, onClose, onSubmit }: Props)
     e.preventDefault();
     setError(null);
     if (next.length < 8) {
-      setError("Mật khẩu mới cần ít nhất 8 ký tự.");
+      setError(t("auth.passwordMin"));
       return;
     }
     if (next !== confirm) {
-      setError("Nhập lại mật khẩu mới không khớp.");
+      setError(t("profile.confirmNewMismatch"));
       return;
     }
     setBusy(true);
@@ -48,7 +50,7 @@ export default function ChangePasswordDialog({ open, onClose, onSubmit }: Props)
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setError(typeof msg === "string" ? msg : "Đổi mật khẩu thất bại.");
+      setError(typeof msg === "string" ? translateError(t, msg) : t("profile.actionFailed"));
     } finally {
       setBusy(false);
     }
@@ -61,12 +63,12 @@ export default function ChangePasswordDialog({ open, onClose, onSubmit }: Props)
       <button
         type="button"
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        aria-label="Đóng"
+        aria-label={t("common.close")}
         onClick={handleClose}
       />
       <div className={`relative w-full max-w-md p-6 space-y-4 ${surfaceCard}`}>
         <div className="flex items-start justify-between gap-3">
-          <h2 className={`text-lg font-semibold ${text.primary}`}>Đổi mật khẩu</h2>
+          <h2 className={`text-lg font-semibold ${text.primary}`}>{t("profile.changePassword")}</h2>
           <button
             type="button"
             onClick={handleClose}
@@ -81,7 +83,7 @@ export default function ChangePasswordDialog({ open, onClose, onSubmit }: Props)
 
         <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3">
           <div>
-            <label className={label}>Mật khẩu hiện tại</label>
+            <label className={label}>{t("profile.currentPassword")}</label>
             <input
               type="password"
               autoComplete="current-password"
@@ -92,7 +94,7 @@ export default function ChangePasswordDialog({ open, onClose, onSubmit }: Props)
             />
           </div>
           <div>
-            <label className={label}>Mật khẩu mới (≥ 8 ký tự)</label>
+            <label className={label}>{t("profile.newPasswordHint")}</label>
             <input
               type="password"
               autoComplete="new-password"
@@ -103,7 +105,7 @@ export default function ChangePasswordDialog({ open, onClose, onSubmit }: Props)
             />
           </div>
           <div>
-            <label className={label}>Nhập lại mật khẩu mới</label>
+            <label className={label}>{t("profile.confirmNewPassword")}</label>
             <input
               type="password"
               autoComplete="new-password"
@@ -123,14 +125,14 @@ export default function ChangePasswordDialog({ open, onClose, onSubmit }: Props)
               disabled={busy}
               className={`flex-1 ${btn.secondary} disabled:opacity-40`}
             >
-              Huỷ
+              {t("common.cancel")}
             </button>
             <button
               type="submit"
               disabled={busy || !current || !next || !confirm}
               className={`flex-1 ${btn.primary} disabled:opacity-40 disabled:cursor-not-allowed`}
             >
-              {busy ? "Đang lưu…" : "Lưu"}
+              {busy ? t("profile.savingName") : t("common.save")}
             </button>
           </div>
         </form>

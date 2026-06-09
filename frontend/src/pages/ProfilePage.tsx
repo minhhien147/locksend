@@ -4,7 +4,8 @@ import { useAuth } from "../contexts/AuthContext";
 import ProfileAccountSettings from "../components/ProfileAccountSettings";
 import { VaultPanel } from "./VaultPage";
 import { HistoryPanel } from "./HistoryPage";
-import { badge, surfaceCard, tabs, text } from "../styles/theme";
+import { useT } from "../i18n/context";
+import { badge, btn, surfaceCard, tabs, text } from "../styles/theme";
 
 type ProfileTab = "vault" | "history";
 
@@ -20,17 +21,18 @@ const ROLE_BADGE: Record<string, string> = {
   admin: badge.danger,
 };
 
-const TAB_CONFIG: { id: ProfileTab; label: string; ownerOnly?: boolean }[] = [
-  { id: "vault", label: "Kho", ownerOnly: true },
-  { id: "history", label: "Lịch sử" },
-];
-
 export default function ProfilePage() {
+  const t = useT();
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const isRecipient = user?.role === "recipient";
 
-  const visibleTabs = TAB_CONFIG.filter((t) => !t.ownerOnly || !isRecipient);
+  const tabConfig: { id: ProfileTab; label: string; ownerOnly?: boolean }[] = [
+    { id: "vault", label: t("profile.tabVault"), ownerOnly: true },
+    { id: "history", label: t("profile.tabHistory") },
+  ];
+
+  const visibleTabs = tabConfig.filter((tab) => !tab.ownerOnly || !isRecipient);
 
   const tab: ProfileTab = useMemo(() => {
     const raw = searchParams.get("tab");
@@ -57,7 +59,7 @@ export default function ProfilePage() {
           </div>
           <div className="min-w-0 flex-1 space-y-1">
             <h1 className={`text-lg font-bold tracking-tight ${text.primary}`}>
-              {user?.display_name || "Hồ sơ"}
+              {user?.display_name || t("profile.title")}
             </h1>
             <p className={`text-sm truncate ${text.secondary}`}>{user?.email}</p>
             <span className={`inline-block mt-1 ${ROLE_BADGE[role] ?? badge.info}`}>
@@ -69,31 +71,31 @@ export default function ProfilePage() {
               to="/keys"
               className="px-3 py-2 rounded-md text-sm font-medium border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/50"
             >
-              Quản lý Keys
+              {t("profile.manageKeys")}
             </Link>
             {!isRecipient && (
               <Link
                 to="/"
-                className="px-3 py-2 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-500 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                className={btn.primary}
               >
-                Upload file
+                {t("profile.uploadFile")}
               </Link>
             )}
           </div>
         </div>
       </section>
 
-      <ProfileAccountSettings />
+      <ProfileAccountSettings key={user?.user_id ?? "guest"} />
 
       <div className={tabs.wrap}>
-        {visibleTabs.map((t) => (
+        {visibleTabs.map((tabItem) => (
           <button
-            key={t.id}
+            key={tabItem.id}
             type="button"
-            onClick={() => setTab(t.id)}
-            className={`${tabs.item} ${tab === t.id ? tabs.itemActive : ""}`}
+            onClick={() => setTab(tabItem.id)}
+            className={`${tabs.item} ${tab === tabItem.id ? tabs.itemActive : ""}`}
           >
-            {t.label}
+            {tabItem.label}
           </button>
         ))}
       </div>
