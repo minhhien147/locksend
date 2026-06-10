@@ -71,13 +71,21 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: rgba(99, 102, 241, 0.08);
-        border: 1px solid rgba(129, 140, 248, 0.18);
-        box-shadow: 0 0 40px rgba(99, 102, 241, 0.12);
+        padding: 0.35rem;
+        background: #ffffff;
+        border: 1px solid rgba(99, 102, 241, 0.15);
+        box-shadow: 0 4px 24px rgba(99, 102, 241, 0.12);
+        overflow: hidden;
+      }
+      html.dark .preloader__logo-wrap {
+        background: rgba(255, 255, 255, 0.97);
+        border-color: rgba(129, 140, 248, 0.22);
+        box-shadow: 0 0 40px rgba(99, 102, 241, 0.18);
       }
       .preloader__logo-wrap img {
-        width: 2.25rem;
-        height: auto;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
         display: block;
         animation: preloader-pulse 2s ease-in-out infinite;
       }
@@ -133,7 +141,7 @@
   <body>
     <div id="app-preloader" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Đang tải LockSend">
       <div class="preloader__logo-wrap">
-        <img src="/locksend-mark.png" alt="" width="36" height="36" decoding="async" />
+        <img src="/locksend-mark.png" alt="" decoding="async" />
       </div>
       <p class="preloader__brand">Lock<span>Send</span></p>
       <div id="preloader-pct">0%</div>

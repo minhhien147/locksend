@@ -115,6 +115,7 @@ interface Overview {
 
 interface AiHealth {
   ready: boolean;
+  realtime_enabled?: boolean;
   mode?: "local" | "remote";
   ai_url?: string;
   version?: string;
@@ -377,10 +378,12 @@ export default function AdminTokenSecurityPage() {
   }, []);
 
   useEffect(() => {
+    if (aiHealth?.realtime_enabled === false) return;
+    if (aiHealth == null) return;
     void loadAlerts();
     const t = setInterval(() => void loadAlerts(), 30_000);
     return () => clearInterval(t);
-  }, [loadAlerts]);
+  }, [loadAlerts, aiHealth?.realtime_enabled]);
 
   const loadTrends = useCallback(async () => {
     setTrendsLoading(true);
@@ -657,8 +660,8 @@ export default function AdminTokenSecurityPage() {
         </div>
       </div>
 
-      {/* Realtime alerts */}
-      {unreadAlerts > 0 && (
+      {/* Realtime alerts (chỉ khi LOCKSEND_AI_REALTIME_ENABLED=true) */}
+      {aiHealth?.realtime_enabled !== false && unreadAlerts > 0 && (
         <div className={`${surfaceCard} px-5 py-4 border-amber-500/20`}>
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <span className="text-sm font-semibold text-amber-300">
