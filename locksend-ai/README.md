@@ -22,14 +22,17 @@ locksend-ai/
 
 ## Dataset
 
-| File | Vai trò |
-|------|---------|
-| `Tuesday-WorkingHours.pcap_ISCX.csv` | BENIGN + brute-force |
-| `Wednesday-workingHours.pcap_ISCX.csv` | BENIGN + DoS |
-| `Friday-WorkingHours-Morning.pcap_ISCX.csv` | BENIGN + Botnet |
-| `Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv` | BENIGN + DDoS |
+Hỗ trợ nhiều benchmark (mới → cũ): **TRUST Lab 2026**, **IDSIoT2024**, **CICIoT2023**, **UWF-ZeekData24**, **Gotham 2025**, CIC-IDS2018/2017.
 
-Đặt CSV vào `data/` (không commit — quá nặng). Xem [data/README.md](./data/README.md).
+Đặt CSV vào `data/<profile>/` (không commit — quá nặng). Chi tiết tải về: [data/README.md](./data/README.md).
+
+```powershell
+# Một dataset
+python train.py --dataset idsiot2024
+
+# Gộp nhiều nguồn (khuyến nghị)
+python train.py --combine trustlab,idsiot2024,ciciot2023 --max-rows 200000
+```
 
 ## Train & chạy local
 
@@ -39,8 +42,9 @@ python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-# TRUST Lab 2026 (khuyến nghị) — CSV trong data/trustlab/
+# TRUST Lab 2026 (khuyến nghị) — xem data/README.md
 python train.py --dataset trustlab
+python train.py --combine trustlab,idsiot2024,ciciot2023
 
 # Hoặc tự chọn: auto | cic2018 | cic2017
 python train.py --dataset auto
@@ -65,34 +69,42 @@ LOCKSEND_AI_URL=http://<host-ai>:8100
 LOCKSEND_AI_API_KEY=your-secret
 ```
 
-## Railway (service riêng)
+## Railway (service riêng — khuyến nghị production)
 
-Root Directory: `/` — repo [minhhien147/locksend-ai](https://github.com/minhhien147/locksend-ai).
+Repo: [minhhien147/locksend-ai](https://github.com/minhhien147/locksend-ai). Root Directory: `/`.
 
-**Biến bắt buộc trên Railway (service locksend-ai):**
+### 1. Service `locksend-ai`
+
+- **RAM:** tối thiểu **2 GB** (tránh OOM khi load sklearn + SHAP)
+- **Volume** mount tại `/data` (khuyến nghị — không cần Azure/S3)
+
+Copy model sau train local:
+
+```powershell
+# model combined ~2 MB — từ locksend-ai/models/model.pkl
+# Railway CLI hoặc dashboard: upload vào volume → /data/model.pkl
+```
+
+Biến môi trường trên **locksend-ai**:
 
 ```env
 LOCKSEND_AI_API_KEY=<shared-secret>
-LOCKSEND_AI_MODEL_URL=https://<storage>/model.pkl?<sas-read-only>
-```
-
-`model.pkl` **không** có trong git (~95MB). Upload lên Blob/R2/S3 → SAS URL.
-
-Tuỳ chọn Volume thay URL:
-
-```env
 LOCKSEND_AI_MODELS_DIR=/data
-# copy model.pkl vào volume /data/
 ```
 
-Healthcheck Railway: `GET /health/live` (liveness). Backend kiểm tra `GET /health` → `ready: true` sau khi model load.
+(Tuỳ chọn thay Volume: `LOCKSEND_AI_MODEL_URL=https://...` — URL public tải `model.pkl`)
 
-Backend cùng project (private networking):
+Healthcheck: `GET /health/live`. Model sẵn sàng khi `GET /health` → `ready: true`.
+
+### 2. Service `locksend-be` (cùng Railway project)
 
 ```env
 LOCKSEND_AI_URL=http://${{locksend-ai.RAILWAY_PRIVATE_DOMAIN}}:${{locksend-ai.PORT}}
-LOCKSEND_AI_API_KEY=<cùng-secret>
+LOCKSEND_AI_API_KEY=<cùng-secret-với-ai>
+LOCKSEND_AI_TIMEOUT=30
 ```
+
+Redeploy **cả hai** service sau khi đổi model hoặc code `locksend_ai.py` (mapping feature TRUST Lab).
 
 ## Tích hợp backend
 

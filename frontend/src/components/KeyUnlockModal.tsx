@@ -87,7 +87,11 @@ export default function KeyUnlockModal({ onUnlocked, onDismiss }: KeyUnlockModal
         {modalState.phase === "no_keys" && (
           <div className="space-y-4">
             <p className={`text-sm ${text.secondary}`}>{t("keyUnlock.noKeypair")}</p>
-            <Link to="/keys" className={`block w-full text-center py-2.5 rounded-lg text-sm font-semibold ${btn.primary}`}>
+            <Link
+              to="/keys"
+              onClick={() => onDismiss?.()}
+              className={`block w-full text-center py-2.5 rounded-lg text-sm font-semibold ${btn.primary}`}
+            >
               {t("nav.keys")}
             </Link>
             {onDismiss && (
@@ -103,7 +107,11 @@ export default function KeyUnlockModal({ onUnlocked, onDismiss }: KeyUnlockModal
             <p className="text-sm text-rose-600 dark:text-rose-400">
               {t("keyUnlock.blobMissing")}
             </p>
-            <Link to="/keys" className={`block w-full text-center py-2.5 rounded-lg text-sm font-semibold ${btn.primary}`}>
+            <Link
+              to="/keys"
+              onClick={() => onDismiss?.()}
+              className={`block w-full text-center py-2.5 rounded-lg text-sm font-semibold ${btn.primary}`}
+            >
               {t("nav.keys")} — {t("keys.migrate")}
             </Link>
             {onDismiss && (

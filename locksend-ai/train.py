@@ -2,10 +2,15 @@
 LockSend AI – Huấn luyện Random Forest (CICFlowMeter features).
 
 Dataset profiles (LOCKSEND_TRAIN_DATASET hoặc --dataset):
-  - trustlab  — TRUST Lab 2026 (khuyến nghị): REST/GraphQL/API + credential attacks
-  - cic2018   — CSE-CIC-IDS2018: brute-force Web/SSH, DoS, infiltration
-  - cic2017   — CIC-IDS2017 (legacy mặc định cũ)
-  - auto      — ưu tiên trustlab → cic2018 → cic2017 nếu có file trong data/
+  - trustlab     — TRUST Lab 2026: REST/GraphQL/API + credential attacks
+  - idsiot2024   — IDSIoT2024 (IEEE): IoT real-world, 12 attack types
+  - ciciot2023   — CICIoT2023 (UNB CIC): 33 IoT attacks, 47 flow features
+  - uwf_zeek24   — UWF-ZeekData24: enterprise MITRE ATT&CK labeled traffic
+  - gotham2025   — Gotham 2025 (Zenodo): large-scale IoT IDS benchmark
+  - cic2018      — CSE-CIC-IDS2018
+  - cic2017      — CIC-IDS2017 (legacy)
+  - auto         — chọn dataset mới nhất có sẵn trong data/
+  - --combine    — gộp nhiều profile (vd. trustlab,idsiot2024,ciciot2023)
 
 Nhãn nhị phân: benign → 0 (ALLOW), attack → 1 → risk score P(ATTACK)
 """
@@ -71,6 +76,22 @@ LOCKSEND_FEATURE_MAP = {
 }
 
 
+# Nhãn benign chung cho dataset IoT / Zeek
+IOT_BENIGN_LABELS: frozenset[str] = frozenset(
+    {
+        "BENIGN",
+        "Benign",
+        "benign",
+        "Normal",
+        "normal",
+        "NORMAL",
+        "Benign Traffic",
+        "benign traffic",
+        "OK",
+    }
+)
+
+
 @dataclass(frozen=True)
 class DatasetProfile:
     name: str
@@ -80,8 +101,8 @@ class DatasetProfile:
     benign_labels: frozenset[str] = frozenset({"BENIGN", "Benign", "benign"})
     version: str = "locksend-ai-1.0"
     description: str = ""
-    # None = glob mọi *.csv trong subdir (TRUST Lab)
-    glob_csv: bool = False
+    # fixed = files cố định | glob_csv = rglob *.csv trong subdir | trustlab_gz = .csv.gz split
+    loader_type: str = "fixed"
 
 
 PROFILES: dict[str, DatasetProfile] = {
@@ -121,13 +142,72 @@ PROFILES: dict[str, DatasetProfile] = {
         name="trustlab",
         subdir=".",
         files=None,
-        glob_csv=True,
+        loader_type="trustlab_gz",
         label_cols=("Label", " Label", "label"),
         benign_labels=frozenset({"Benign", "BENIGN", "benign"}),
         version="locksend-ai-trustlab-2026",
         description="TRUST Lab 2026 — API/GraphQL/SOAP, credential attacks, 80 CICFlowMeter features",
     ),
+    "idsiot2024": DatasetProfile(
+        name="idsiot2024",
+        subdir="idsiot2024",
+        files=None,
+        loader_type="glob_csv",
+        label_cols=("Label", "label", "Attack", "attack", "Class"),
+        benign_labels=IOT_BENIGN_LABELS,
+        version="locksend-ai-idsiot2024",
+        description="IDSIoT2024 — IoT real-world (2024), 12 attack types, DOI 10.21227/gfaz-t124",
+    ),
+    "ciciot2023": DatasetProfile(
+        name="ciciot2023",
+        subdir="ciciot2023",
+        files=None,
+        loader_type="glob_csv",
+        label_cols=("label", "Label", "attack", "Attack"),
+        benign_labels=IOT_BENIGN_LABELS,
+        version="locksend-ai-ciciot2023",
+        description="CICIoT2023 — 33 IoT attacks, 47 DPKT flow features, UNB CIC",
+    ),
+    "uwf_zeek24": DatasetProfile(
+        name="uwf_zeek24",
+        subdir="uwf_zeek24",
+        files=None,
+        loader_type="glob_csv",
+        label_cols=("label", "Label", "attack_category", "Attack", "mitre_technique"),
+        benign_labels=IOT_BENIGN_LABELS,
+        version="locksend-ai-uwf-zeek24",
+        description="UWF-ZeekData24 — enterprise MITRE ATT&CK labeled Zeek traffic (2024)",
+    ),
+    "gotham2025": DatasetProfile(
+        name="gotham2025",
+        subdir="gotham2025",
+        files=None,
+        loader_type="glob_csv",
+        label_cols=("label", "Label", "attack", "class", "Class", "attack_type"),
+        benign_labels=IOT_BENIGN_LABELS,
+        version="locksend-ai-gotham2025",
+        description="Gotham Dataset 2025 — large-scale IoT IDS, 78 virtual devices, Zenodo",
+    ),
 }
+
+COMBINED_PROFILE = DatasetProfile(
+    name="combined",
+    subdir=".",
+    files=None,
+    loader_type="fixed",
+    version="locksend-ai-combined-2026",
+    description="Gộp nhiều benchmark IDS (TRUST Lab + IDSIoT2024 + CICIoT2023 + …)",
+)
+
+AUTO_DATASET_ORDER: tuple[str, ...] = (
+    "trustlab",
+    "idsiot2024",
+    "ciciot2023",
+    "uwf_zeek24",
+    "gotham2025",
+    "cic2018",
+    "cic2017",
+)
 
 # Thứ tự category TRUST Lab (tên thư mục trong Datasets/)
 TRUSTLAB_CATEGORY_ORDER: tuple[str, ...] = (
@@ -293,15 +373,14 @@ def _resolve_trustlab_sources(
 
 def _resolve_files(profile: DatasetProfile) -> list[Path]:
     root = _data_root(profile)
-    if profile.glob_csv:
-        tl = find_trustlab_root()
-        if tl is not None:
-            raise RuntimeError("_resolve_files: dùng _resolve_trustlab_sources cho trustlab")
+    if profile.loader_type == "trustlab_gz":
+        raise RuntimeError("_resolve_files: dùng load_trustlab_dataset cho trustlab")
+    if profile.loader_type == "glob_csv":
         paths = _discover_csv_files(root)
         if not paths:
             raise FileNotFoundError(
-                f"Không tìm thấy CSV TRUST Lab trong {root}.\n"
-                "Tải: https://doi.org/10.82432/10317/21203 → giải nén vào locksend-ai/data/"
+                f"Không tìm thấy CSV trong {root}.\n"
+                f"Xem locksend-ai/data/README.md — profile: {profile.name}"
             )
         return paths
     if not profile.files:
@@ -315,27 +394,46 @@ def _resolve_files(profile: DatasetProfile) -> list[Path]:
     return paths
 
 
+def profile_available(profile: DatasetProfile) -> bool:
+    """Kiểm tra dataset đã tải vào data/ chưa."""
+    try:
+        if profile.loader_type == "trustlab_gz":
+            return find_trustlab_root() is not None
+        if profile.loader_type == "glob_csv":
+            root = _data_root(profile)
+            return root.is_dir() and bool(_discover_csv_files(root))
+        _resolve_files(profile)
+        return True
+    except (FileNotFoundError, RuntimeError, ValueError):
+        return False
+
+
 def resolve_profile(name: str) -> DatasetProfile:
-    key = name.strip().lower()
+    key = name.strip().lower().replace("-", "_")
     if key == "auto":
-        for candidate in ("trustlab", "cic2018", "cic2017"):
-            try:
-                if candidate == "trustlab":
-                    if find_trustlab_root() is None:
-                        raise FileNotFoundError
-                else:
-                    _resolve_files(PROFILES[candidate])
+        for candidate in AUTO_DATASET_ORDER:
+            profile = PROFILES[candidate]
+            if profile_available(profile):
                 print(f"[auto] Chọn dataset: {candidate}")
-                return PROFILES[candidate]
-            except (FileNotFoundError, RuntimeError):
-                continue
+                return profile
         raise FileNotFoundError(
-            "Không tìm thấy dataset nào trong data/. "
-            "Giải nén TRUST Lab vào data/ hoặc đặt CSV cic2018/cic2017."
+            "Không tìm thấy dataset nào trong data/.\n"
+            "Xem locksend-ai/data/README.md — tải TRUST Lab, IDSIoT2024, CICIoT2023, …"
         )
     if key not in PROFILES:
-        raise ValueError(f"Dataset không hỗ trợ: {name}. Chọn: {', '.join(PROFILES)} hoặc auto")
+        names = ", ".join([*PROFILES.keys(), "auto"])
+        raise ValueError(f"Dataset không hỗ trợ: {name}. Chọn: {names}")
     return PROFILES[key]
+
+
+def parse_combine_list(raw: str) -> list[str]:
+    names = [n.strip().lower().replace("-", "_") for n in raw.split(",") if n.strip()]
+    if not names:
+        raise ValueError("--combine cần ít nhất một profile (vd. trustlab,idsiot2024)")
+    for n in names:
+        if n not in PROFILES:
+            raise ValueError(f"Profile không hợp lệ trong --combine: {n}")
+    return names
 
 
 def _detect_label_col(df: pd.DataFrame, candidates: tuple[str, ...]) -> str:
@@ -443,6 +541,92 @@ def load_dataset(
     return combined, label_col_name.strip()
 
 
+def load_profile_raw(
+    profile: DatasetProfile,
+    max_rows: int | None,
+    *,
+    trustlab_fast: bool,
+    benign_parts: int | None,
+) -> tuple[pd.DataFrame, str, list[str]]:
+    """Đọc một profile → DataFrame thô + tên cột nhãn + danh sách nguồn."""
+    if profile.loader_type == "trustlab_gz":
+        return load_trustlab_dataset(
+            profile,
+            max_rows,
+            fast=trustlab_fast,
+            benign_parts=benign_parts,
+        )
+    paths = _resolve_files(profile)
+    source_names = [
+        str(p.relative_to(BASE_DIR)) if p.is_relative_to(BASE_DIR) else str(p)
+        for p in paths
+    ]
+    df, label_col = load_dataset(profile, max_rows)
+    return df, label_col, source_names
+
+
+def align_feature_frames(
+    parts: list[tuple[pd.DataFrame, pd.Series, str]],
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Gộp nhiều dataset — union feature columns, thiếu cột → 0."""
+    if not parts:
+        raise ValueError("Không có dữ liệu để gộp")
+    all_cols = sorted({c for X, _, _ in parts for c in X.columns})
+    X_out: list[pd.DataFrame] = []
+    y_out: list[pd.Series] = []
+    for X, y, name in parts:
+        aligned = pd.DataFrame(0.0, index=X.index, columns=all_cols)
+        for col in X.columns:
+            aligned[col] = X[col].values
+        X_out.append(aligned)
+        y_out.append(y)
+        print(f"  [align] {name}: {len(X):,} dòng, {len(X.columns)} → {len(all_cols)} features")
+    X_merged = pd.concat(X_out, ignore_index=True)
+    y_merged = pd.concat(y_out, ignore_index=True)
+    print(
+        f"Tổng (combined): {len(X_merged):,} dòng, {len(all_cols)} features "
+        f"(attack ratio {y_merged.mean():.2%})"
+    )
+    return X_merged, y_merged
+
+
+def load_combined_dataset(
+    names: list[str],
+    max_rows: int | None,
+    *,
+    trustlab_fast: bool,
+    benign_parts: int | None,
+) -> tuple[pd.DataFrame, pd.Series, list[str]]:
+    """Gộp nhiều profile; căn chỉnh feature trước khi train."""
+    parts: list[tuple[pd.DataFrame, pd.Series, str]] = []
+    source_names: list[str] = []
+
+    for name in names:
+        profile = PROFILES[name]
+        if not profile_available(profile):
+            print(f"⚠ Bỏ qua {name}: chưa có dữ liệu trong data/")
+            continue
+        print(f"\n--- Load profile: {name} ---")
+        df, label_col, sources = load_profile_raw(
+            profile,
+            max_rows,
+            trustlab_fast=trustlab_fast,
+            benign_parts=benign_parts,
+        )
+        X, y = clean_features(df, label_col, profile.benign_labels)
+        parts.append((X, y, name))
+        source_names.extend(f"{name}:{s}" for s in sources)
+
+    if not parts:
+        raise FileNotFoundError(
+            "Không load được profile nào trong --combine. Kiểm tra data/README.md."
+        )
+
+    print("\n--- Căn chỉnh features ---")
+    X_all, y_all = align_feature_frames(parts)
+    return X_all, y_all, source_names
+
+
 def clean_features(
     df: pd.DataFrame,
     label_col: str,
@@ -547,6 +731,13 @@ def parse_args() -> argparse.Namespace:
         help="Dataset profile (mặc định: auto hoặc LOCKSEND_TRAIN_DATASET)",
     )
     parser.add_argument(
+        "--combine",
+        "-c",
+        default=os.getenv("LOCKSEND_TRAIN_COMBINE", "").strip(),
+        metavar="A,B,C",
+        help="Gộp nhiều profile: trustlab,idsiot2024,ciciot2023 (ưu tiên hơn --dataset)",
+    )
+    parser.add_argument(
         "--max-rows",
         type=int,
         default=int(os.getenv("LOCKSEND_TRAIN_MAX_ROWS", "120000")),
@@ -570,30 +761,42 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     max_rows: int | None = args.max_rows if args.max_rows > 0 else None
-    profile = resolve_profile(args.dataset)
-    print(f"=== LockSend AI train — {profile.name} ===")
-    print(profile.description or "")
+    benign_parts: int | None = args.benign_parts if args.benign_parts > 0 else None
 
-    if profile.name == "trustlab":
-        benign_parts: int | None = args.benign_parts if args.benign_parts > 0 else None
-        if not args.trustlab_fast and benign_parts is not None and benign_parts <= 2:
-            print(
-                "[trustlab] Gợi ý: train đầy đủ dùng --benign-parts 0; "
-                "train nhanh thêm --trustlab-fast"
-            )
-        df, label_col, source_names = load_trustlab_dataset(
-            profile,
+    if args.combine:
+        combine_names = parse_combine_list(args.combine)
+        profile = COMBINED_PROFILE
+        print(f"=== LockSend AI train — combined ({', '.join(combine_names)}) ===")
+        print(profile.description)
+        X, y, source_names = load_combined_dataset(
+            combine_names,
             max_rows,
-            fast=args.trustlab_fast,
+            trustlab_fast=args.trustlab_fast,
             benign_parts=benign_parts,
         )
+        label_col = "combined"
     else:
-        paths = _resolve_files(profile)
-        source_names = [str(p.relative_to(BASE_DIR)) for p in paths]
-        df, label_col = load_dataset(profile, max_rows)
+        profile = resolve_profile(args.dataset)
+        print(f"=== LockSend AI train — {profile.name} ===")
+        print(profile.description or "")
 
-    X, y = clean_features(df, label_col, profile.benign_labels)
+        if profile.name == "trustlab" and not args.trustlab_fast and benign_parts is not None:
+            if benign_parts <= 2:
+                print(
+                    "[trustlab] Gợi ý: train đầy đủ dùng --benign-parts 0; "
+                    "train nhanh thêm --trustlab-fast"
+                )
+        df, label_col, source_names = load_profile_raw(
+            profile,
+            max_rows,
+            trustlab_fast=args.trustlab_fast,
+            benign_parts=benign_parts,
+        )
+        X, y = clean_features(df, label_col, profile.benign_labels)
+
     model, metrics = train_model(X, y)
+    if profile.name == "combined" and args.combine:
+        metrics["combine_profiles"] = parse_combine_list(args.combine)
     save_bundle(model, list(X.columns), metrics, profile, source_names, label_col)
 
 
