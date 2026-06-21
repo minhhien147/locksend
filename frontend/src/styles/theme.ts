@@ -229,9 +229,6 @@ export const admin = {
   navActiveToken:
     "bg-slate-900 text-violet-200 ring-1 ring-slate-600 " +
     "dark:bg-violet-500/15 dark:text-violet-300 dark:ring-violet-400/25",
-  navActiveStress:
-    "bg-slate-900 text-amber-200 ring-1 ring-slate-600 " +
-    "dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-400/25",
   navInactive: `${nav.inactive} hover:bg-slate-100 dark:hover:bg-white/[0.04]`,
   roleOwner:
     "bg-slate-900 text-blue-200 border border-slate-600 " +

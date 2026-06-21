@@ -36,18 +36,6 @@ export default function AdminLayout() {
         >
           {t("admin.tokenSecurityNav")}
         </NavLink>
-        <NavLink
-          to="/admin/stress"
-          className={({ isActive }) =>
-            `px-4 py-2 rounded-xl text-[13px] font-medium transition ${
-              isActive
-                ? admin.navActiveStress
-                : admin.navInactive
-            }`
-          }
-        >
-          {t("admin.stressTest")}
-        </NavLink>
       </nav>
 
       <Outlet />
