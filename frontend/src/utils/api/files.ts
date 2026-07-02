@@ -138,7 +138,7 @@ export async function uploadEncryptedFile(
   const blob = new Blob([new Uint8Array(ciphertext)], {
     type: "application/octet-stream",
   });
-  formData.append("file", blob, fileName + ".enc");
+  formData.append("file", blob, fileName + ".lsc");
   formData.append("metadata_json", JSON.stringify(metadata));
   formData.append("storage_mode", options?.storageMode ?? "share");
   if (options?.storageMode === "vault" && options.folderId) {
@@ -254,10 +254,12 @@ export async function resolveCiphertextInfoBySas(sasUrl: string): Promise<{
 /** Tải một encrypted chunk (file lớn — peak RAM thấp). */
 export async function downloadCiphertextChunk(
   fileId: string,
-  chunkIndex: number
+  chunkIndex: number,
+  sasUrl?: string
 ): Promise<Uint8Array> {
   const response = await api.get(`/files/${fileId}/ciphertext/chunks/${chunkIndex}`, {
     responseType: "arraybuffer",
+    params: sasUrl ? { sas_url: sasUrl } : undefined,
   });
   return new Uint8Array(response.data as ArrayBuffer);
 }
