@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { NavLink, Navigate, Routes, Route, Link } from "react-router-dom";
+import { NavLink, Navigate, Routes, Route, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useT } from "../i18n/context";
 import { shell, header, nav, text, brand, badge } from "../styles/theme";
 import { useKeySync } from "../hooks/useKeySync";
+import { useInboxNotifications } from "../hooks/useInboxNotifications";
+import NotificationPanel from "./NotificationPanel";
 import {
   restoreFromSession,
   hasSessionWrapper,
@@ -67,15 +69,16 @@ interface TopNavItemProps {
   label: string;
   icon: string;
   danger?: boolean;
+  badgeCount?: number;
 }
 
-export function TopNavItem({ to, label, icon, danger }: TopNavItemProps) {
+export function TopNavItem({ to, label, icon, danger, badgeCount }: TopNavItemProps) {
   return (
     <NavLink
       to={to}
       end
       className={({ isActive }) =>
-        `flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-all duration-150 ${
+        `relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-all duration-150 ${
           isActive
             ? danger ? nav.activeDanger : nav.active
             : danger ? nav.inactiveDanger : nav.inactive
@@ -84,6 +87,11 @@ export function TopNavItem({ to, label, icon, danger }: TopNavItemProps) {
     >
       {NAV_ICONS[icon]}
       {label}
+      {!!badgeCount && badgeCount > 0 && (
+        <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-0.5 flex items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-bold leading-none shadow">
+          {badgeCount > 99 ? "99+" : badgeCount}
+        </span>
+      )}
     </NavLink>
   );
 }
@@ -101,14 +109,35 @@ const ROLE_CONFIG: Record<string, { label: string; badgeClass: string }> = {
 export default function AppShell() {
   const { user, logout } = useAuth();
   const t = useT();
+  const location = useLocation();
   useKeySync(!!user && user.role !== "recipient");
 
   const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
   const role = user?.role ?? "owner";
   const roleCfg = ROLE_CONFIG[role] ?? ROLE_CONFIG.owner;
   const isRecipient = role === "recipient";
   const isAdmin = role === "admin";
   const initials = (user?.display_name || user?.email || "U").slice(0, 2).toUpperCase();
+
+  const {
+    inboxItems,
+    sentItems,
+    newInboxItems,
+    unreadCount,
+    loading: notifLoading,
+    permissionState,
+    requestPermission,
+    markAllSeen,
+    refresh: refreshNotifs,
+  } = useInboxNotifications();
+
+  // ── Clear inbox badge when user navigates to profile (where inbox lives) ─────
+  useEffect(() => {
+    if (location.pathname === "/profile") {
+      markAllSeen();
+    }
+  }, [location.pathname, markAllSeen]);
 
   // ── Key vault restore on mount (F5) ────────────────────────────────────────
   useEffect(() => {
@@ -171,12 +200,65 @@ export default function AppShell() {
               {!isRecipient && <TopNavItem to="/" label={t("nav.upload")} icon="upload" />}
               <TopNavItem to="/download" label={t("nav.download")} icon="download" />
               <TopNavItem to="/keys" label={t("nav.keys")} icon="key" />
-              <TopNavItem to="/profile" label={t("nav.profile")} icon="profile" />
+              <TopNavItem
+                to="/profile"
+                label={t("nav.profile")}
+                icon="profile"
+                badgeCount={unreadCount}
+              />
               {isAdmin && <TopNavItem to="/admin" label={t("nav.admin")} icon="admin" danger />}
             </nav>
 
             {/* User menu */}
             <div className="flex items-center gap-2 shrink-0">
+              {/* ── Notification bell + dropdown panel ── */}
+              <div className="relative">
+                <button
+                  type="button"
+                  title={
+                    unreadCount > 0
+                      ? t("notifications.unreadFilesPlural").replace("{count}", String(unreadCount))
+                      : t("notifications.panelTitle")
+                  }
+                  onClick={() => {
+                    setPanelOpen((v) => !v);
+                    if (!panelOpen) markAllSeen();
+                  }}
+                  className={`relative p-1.5 rounded-lg transition ${
+                    panelOpen
+                      ? "text-violet-600 bg-violet-50 dark:text-violet-400 dark:bg-violet-400/10"
+                      : `${text.faint} hover:text-violet-600 hover:bg-violet-50 dark:hover:text-violet-400 dark:hover:bg-violet-400/10`
+                  }`}
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center rounded-full bg-rose-500 text-white text-[9px] font-bold leading-none">
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  )}
+                  {/* Amber dot when notifications not yet enabled */}
+                  {permissionState === "default" && unreadCount === 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                  )}
+                </button>
+
+                <NotificationPanel
+                  open={panelOpen}
+                  onClose={() => setPanelOpen(false)}
+                  inboxItems={inboxItems}
+                  sentItems={sentItems}
+                  newInboxItems={newInboxItems}
+                  unreadCount={unreadCount}
+                  loading={notifLoading}
+                  onMarkAllSeen={markAllSeen}
+                  onRefresh={refreshNotifs}
+                  permissionState={permissionState}
+                  onRequestPermission={requestPermission}
+                />
+              </div>
+
               <LanguageToggle />
               <ThemeToggle />
               <div className={`flex items-center gap-2.5 pl-3 border-l ${header.divider}`}>
@@ -214,6 +296,7 @@ export default function AppShell() {
         {/* ── Page content ── */}
         <main className="flex-1 max-w-6xl w-full mx-auto px-5 py-8">
           <SecurityAlertsBanner />
+
           <Routes>
             <Route path="/" element={isRecipient ? <DownloadPage /> : <UploadPage />} />
             <Route path="/download" element={<DownloadPage />} />
