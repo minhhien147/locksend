@@ -33,8 +33,15 @@ MODEL_PATH = model_path()
 
 def load_bundle() -> dict[str, Any]:
     path = ensure_model()
+    # A08: Checksum đã được verify trong ensure_model() → log để audit trail
     with open(path, "rb") as f:
-        return pickle.load(f)
+        bundle = pickle.load(f)  # nosec B301 — đã verify SHA-256 trước khi load
+    model_type = bundle.get("model_type", "rf")
+    model = bundle.get("model")
+    # MLP bundle: model là MLPPredictor — đảm bảo net ở eval mode
+    if model_type == "mlp" and hasattr(model, "net"):
+        model.net.eval()
+    return bundle
 
 
 def risk_level(score: float, thresholds: dict) -> str:

@@ -5,6 +5,10 @@ __pycache__/
 venv/
 .venv/
 
+# Environment secrets
+.env
+.env.local
+
 # Dataset & model (deploy qua Volume / LOCKSEND_AI_MODEL_URL)
 data/**/*.csv
 data/**/*.csv.gz

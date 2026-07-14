@@ -146,7 +146,12 @@ export function useDownload(): UseDownloadReturn {
       const fileSizeBytes = await decryptChunkedToWritable(
         metadata,
         myKeys.x25519.privateKey,
-        (chunkIndex) => downloadCiphertextChunk(fileId, chunkIndex),
+        (chunkIndex) =>
+          downloadCiphertextChunk(
+            fileId,
+            chunkIndex,
+            logSasUrl.startsWith("https://") ? logSasUrl : undefined
+          ),
         writable,
         (done, total) =>
           setState((prev) => ({

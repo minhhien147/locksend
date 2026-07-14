@@ -716,7 +716,12 @@ def save_bundle(
         pickle.dump(bundle, f)
     with open(METRICS_PATH, "w", encoding="utf-8") as f:
         json.dump({**metrics, "dataset": profile.name, "version": profile.version}, f, indent=2)
+
+    # Fix #7 — A08: Auto-save SHA256 checksum sau khi train
+    from model_store import save_checksum
+    digest = save_checksum(str(MODEL_PATH))
     print(f"\nĐã lưu model: {MODEL_PATH}")
+    print(f"SHA-256 checksum: {digest[:16]}… → {MODEL_PATH}.sha256")
     print(f"Metrics JSON: {METRICS_PATH}")
     print(f"Dataset: {profile.name} ({profile.version})")
 

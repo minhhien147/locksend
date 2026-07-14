@@ -1,0 +1,30 @@
+# Cloudflare Pages — wrangler.toml
+# Docs: https://developers.cloudflare.com/pages/configuration/wrangler-configuration/
+#
+# Cách dùng:
+#   npm run build          # build trước
+#   npx wrangler pages deploy dist --project-name=locksend
+#
+# Hoặc dùng CI (xem hướng dẫn trong README):
+#   npx wrangler pages deploy dist
+
+name = "locksend"          # <-- đổi thành tên project trên Cloudflare Dashboard
+
+# ── Pages build config ──────────────────────────────────────────────────────
+pages_build_output_dir = "dist"
+
+# ── Compatibility ───────────────────────────────────────────────────────────
+# Dùng compatibility_date mới nhất để kích hoạt latest edge runtime fixes
+compatibility_date = "2026-07-01"
+
+# ── Environment Variables (build-time) ──────────────────────────────────────
+# QUAN TRỌNG: VITE_* phải set tại Dashboard → Settings → Environment Variables
+# vì wrangler.toml KHÔNG nhúng secret vào source control.
+#
+# Các biến cần set trên Dashboard (Production + Preview):
+#   VITE_API_URL            = https://your-backend.up.railway.app
+#   VITE_GOOGLE_CLIENT_ID   = (tuỳ chọn)
+
+# ── Preview environment ─────────────────────────────────────────────────────
+[env.preview]
+name = "locksend-preview"
