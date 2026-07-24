@@ -176,6 +176,46 @@ interface AiTokenResult {
   error?: string;
 }
 
+type JobStatus = "pending" | "running" | "completed" | "failed";
+
+interface AiAnalysisJob {
+  job_id: string;
+  triggered_by?: string | null;
+  token_type: string;
+  total_tokens: number;
+  analyzed_count: number;
+  skipped_cached: number;
+  failed_count: number;
+  status: JobStatus;
+  error_message?: string | null;
+  progress_pct: number;
+  result_summary?: {
+    total_requested: number;
+    skipped_recent: number;
+    skipped_cache: number;
+    ai_analyzed: number;
+    failed: number;
+    saved_snapshots: number;
+    high_risk_count?: number;
+    revoke_recommendations?: number;
+  } | null;
+  created_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  snapshots?: Array<{
+    id: string;
+    token_type: string;
+    token_ref: string;
+    user_id?: string | null;
+    rule_score: number;
+    ai_score_pct: number;
+    ai_level: string;
+    decision: string;
+    source: string;
+    created_at: string;
+  }>;
+}
+
 type Tab = "overview" | "tokens" | "ai-report" | "trends" | "files";
 
 interface SecurityAlert {
@@ -260,27 +300,60 @@ function MiniBarChart({
   labels,
   series,
   colorClass,
+  emptyLabel,
 }: {
   labels: string[];
   series: number[];
   colorClass: string;
+  emptyLabel: string;
 }) {
   const max = Math.max(1, ...series);
-  return (
-    <div className="flex items-end gap-1.5 h-28">
-      {series.map((v, i) => (
-        <div key={labels[i]} className="flex-1 flex flex-col items-center gap-1 min-w-0">
-          <span className="text-[9px] text-slate-500 dark:text-white/30">{v || ""}</span>
-          <div
-            className={`w-full rounded-t ${colorClass} transition-all`}
-            style={{ height: `${Math.max(4, (v / max) * 100)}%` }}
-            title={`${labels[i]}: ${v}`}
-          />
-          <span className="text-[8px] text-slate-500 dark:text-white/25 truncate w-full text-center">
-            {labels[i].slice(5)}
-          </span>
+  const hasData = series.some((v) => v > 0);
+
+  if (!hasData) {
+    return (
+      <div className="h-52 rounded-2xl border border-white/10 bg-slate-950/35 flex items-center justify-center text-center px-6">
+        <div>
+          <p className="text-sm font-medium text-slate-200 dark:text-white/80">{emptyLabel}</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-white/35">
+            {labels.length > 0 ? `${labels[0].slice(5)} → ${labels[labels.length - 1].slice(5)}` : ""}
+          </p>
         </div>
-      ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+      <div className="mb-3 flex items-center justify-between text-[11px]">
+        <span className="text-slate-500 dark:text-white/35">Max</span>
+        <span className="font-semibold text-slate-200 dark:text-white/80">{max}</span>
+      </div>
+      <div className="relative h-44">
+        <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
+          {[0, 1, 2, 3].map((line) => (
+            <div key={line} className="border-t border-dashed border-white/8" />
+          ))}
+        </div>
+        <div className="relative flex h-full items-end gap-2">
+          {series.map((v, i) => (
+            <div key={labels[i]} className="flex-1 flex flex-col items-center justify-end gap-2 min-w-0 h-full">
+              <span className="text-[10px] font-medium text-slate-400 dark:text-white/45">{v || ""}</span>
+              <div className="relative flex w-full flex-1 items-end">
+                <div className="absolute inset-x-0 bottom-0 rounded-t-xl bg-white/[0.04]" />
+                <div
+                  className={`relative w-full rounded-t-xl ${colorClass} shadow-[0_0_18px_rgba(59,130,246,0.18)] transition-all`}
+                  style={{ height: `${Math.max(8, (v / max) * 100)}%` }}
+                  title={`${labels[i]}: ${v}`}
+                />
+              </div>
+              <span className="text-[10px] text-slate-500 dark:text-white/28 truncate w-full text-center">
+                {labels[i].slice(5)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -312,6 +385,10 @@ export default function AdminTokenSecurityPage() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
 
+  const [_activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activeJob, setActiveJob] = useState<AiAnalysisJob | null>(null);
+  const [jobPollTimer, setJobPollTimer] = useState<number | null>(null);
+
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
 
@@ -331,21 +408,36 @@ export default function AdminTokenSecurityPage() {
     setTimeout(() => setFeedback(null), 5000);
   };
 
-  // ── Load overview ───────────────────────────────────────────────────────────
+  // ── Load overview LIGHT (counts + risk_summary) + lazy top_risk ─────────────
 
-  const loadOverview = useCallback(async () => {
+  const loadTopRisk = useCallback(async () => {
+    try {
+      const res = await api.get<{ top_risk_tokens: TokenMetric[] }>(
+        "/auth/admin/token-security/overview/top-risk"
+      );
+      setOverview((prev) => prev ? { ...prev, top_risk_tokens: res.data.top_risk_tokens ?? [] } : prev);
+    } catch {
+      /* optional — top risk là optional feature */
+    }
+  }, []);
+
+  const loadOverview = useCallback(async (opts?: { skipCache?: boolean }) => {
     try {
       setLoading(true);
       const res = await api.get<{ overview: Overview }>(
-        "/auth/admin/token-security/overview"
+        `/auth/admin/token-security/overview?skip_cache=${opts?.skipCache ? "1" : "0"}`
       );
       setOverview(res.data.overview);
+      // Ngay sau khi overview render KPI → chạy lazy load top_risk + các phần nặng
+      window.setTimeout(() => void loadTopRisk(), 30);
+      window.setTimeout(() => void loadAiHealth(), 50);
     } catch {
       flash("err", t("admin.tokenSecurity.loadFailed"));
     } finally {
+      // Tắt loading ngay sau khi có counts (không chờ top_risk / AI health heavy)
       setLoading(false);
     }
-  }, []);
+  }, [loadTopRisk]);
 
   useEffect(() => { void loadOverview(); }, [loadOverview]);
 
@@ -376,6 +468,39 @@ export default function AdminTokenSecurityPage() {
       /* optional */
     }
   }, []);
+
+  const loadRecentSnapshots = useCallback(async () => {
+    try {
+      const res = await api.get<{ snapshots: any[] }>("/auth/admin/token-security/ai/snapshots");
+      const snap = res.data.snapshots ?? [];
+      setAiResults(
+        snap.map((s) => ({
+          token_id: s.token_ref,
+          token_type: s.token_type as any,
+          risk_score_pct: s.ai_score_pct,
+          risk_score_raw: s.ai_score_pct / 100,
+          risk_level: s.ai_level,
+          ai_level_raw: s.ai_level,
+          decision: s.decision,
+          is_attack: s.ai_score_pct >= 50,
+          rule_score: s.rule_score,
+          rule_level: "low",
+          rule_recommendation: "ALLOW",
+          behavior_badges: [],
+          agreement: undefined,
+          explanation: { summary: "", top_features: [], summary_vi: s.source },
+        }))
+      );
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "ai-report") {
+      void loadRecentSnapshots();
+    }
+  }, [activeTab, loadRecentSnapshots]);
 
   useEffect(() => {
     if (aiHealth?.realtime_enabled === false) return;
@@ -535,31 +660,88 @@ export default function AdminTokenSecurityPage() {
     URL.revokeObjectURL(url);
   };
 
-  const runAiAnalyze = async () => {
+  const runAiAnalyze = async (forceAll: boolean = true) => {
     setAnalyzing(true);
     setAiResults([]);
+    setAiRuleMetrics([]);
     setAiError(null);
+    setActiveJob(null);
     try {
       const res = await api.post<{
-        analyzed: number;
-        ai_results: AiTokenResult[];
-        ai_error: string | null;
-        rule_metrics: TokenMetric[];
+        job_id: string;
+        status: JobStatus;
+        total_tokens: number;
+        message: string;
+        poll_url: string;
       }>("/auth/admin/token-security/ai/analyze", {
         token_type: "all",
-        top_n: 20,
+        skip_recent: !forceAll,
+        force_all: forceAll,
       });
-      setAiResults(res.data.ai_results ?? []);
-      setAiRuleMetrics(res.data.rule_metrics ?? []);
-      if (res.data.ai_error) setAiError(res.data.ai_error);
-      setActiveTab("ai-report");
-      flash("ok", t("admin.tokenSecurity.aiAnalyzed", { count: res.data.analyzed }));
+      const { job_id } = res.data;
+      setActiveJobId(job_id);
+      flash("ok", t("admin.tokenSecurity.jobStarted") ?? `Job ${job_id.slice(0, 8)} started…`);
+      void pollJob(job_id);
     } catch {
       setAiError(t("admin.tokenSecurity.aiAnalyzeFailed"));
-    } finally {
       setAnalyzing(false);
+      setActiveJobId(null);
     }
   };
+
+  const pollJob = useCallback(
+    async (jobId: string) => {
+      try {
+        const res = await api.get<AiAnalysisJob>(
+          `/auth/admin/token-security/ai/jobs/${jobId}`,
+          { params: { include_details: true } }
+        );
+        const job = res.data;
+        setActiveJob(job);
+        if (job.status === "completed") {
+          void loadRecentSnapshots();
+          setActiveTab("ai-report");
+          const summary = job.result_summary;
+          const countOk = summary?.ai_analyzed ?? job.analyzed_count;
+          const skipped = summary?.skipped_recent ?? job.skipped_cached;
+          
+          if (skipped > 0) {
+            flash("ok", `Analyzed ${countOk} tokens. Skipped ${skipped} cached tokens.`);
+          } else {
+            flash("ok", t("admin.tokenSecurity.aiAnalyzed", { count: countOk }) ?? `Analyzed ${countOk} tokens successfully.`);
+          }
+          
+          setAnalyzing(false);
+          setActiveJobId(null);
+          return;
+        }
+        if (job.status === "failed") {
+          setAiError(
+            job.error_message ?? (t("admin.tokenSecurity.aiAnalyzeFailed") as string)
+          );
+          setAnalyzing(false);
+          setActiveJobId(null);
+          return;
+        }
+        const timer = window.setTimeout(() => void pollJob(jobId), 1500);
+        setJobPollTimer((prev) => {
+          if (prev) window.clearTimeout(prev);
+          return timer;
+        });
+      } catch {
+        setAiError(t("admin.tokenSecurity.aiAnalyzeFailed"));
+        setAnalyzing(false);
+        setActiveJobId(null);
+      }
+    },
+    [t]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (jobPollTimer) window.clearTimeout(jobPollTimer);
+    };
+  }, [jobPollTimer]);
 
   // ── Actions ─────────────────────────────────────────────────────────────────
 
@@ -572,7 +754,7 @@ export default function AdminTokenSecurityPage() {
         { reason: "Admin manual revoke" }
       );
       flash("ok", t("admin.tokenSecurity.revokeJwtOk", { count: res.data.revoked_sessions }));
-      void loadOverview();
+      void loadOverview({ skipCache: true });
     } catch {
       flash("err", t("admin.tokenSecurity.revokeJwtFailed"));
     } finally {
@@ -603,7 +785,7 @@ export default function AdminTokenSecurityPage() {
         "/auth/admin/token-security/auto-revoke"
       );
       flash("ok", `Auto-revoke: ${res.data.revoked_jwt_sessions} JWT, ${res.data.revoked_sas_tokens} SAS`);
-      void loadOverview();
+      void loadOverview({ skipCache: true });
     } catch {
       flash("err", t("admin.tokenSecurity.autoRevokeFailed"));
     }
@@ -644,7 +826,7 @@ export default function AdminTokenSecurityPage() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => void loadOverview()}
+            onClick={() => void loadOverview({ skipCache: true })}
             disabled={loading}
             className={`${admin.btnGhost} disabled:opacity-40`}
           >
@@ -717,8 +899,52 @@ export default function AdminTokenSecurityPage() {
         </div>
       )}
 
-      {/* Feedback */}
-      {feedback && (
+      {/* AI analyzed banner (3-layer data source fallback)
+          1. activeJob FAILED → red banner with error details
+          2. activeJob RUNNING / COMPLETED → blue / emerald with job data
+          3. NO activeJob but aiResults.length > 0 (PER-TOKEN = 94 đang hiện như ảnh user)
+             → emerald with aiResults.length (đồng bộ với PER-TOKEN banner con bên dưới)
+          4. NO activeJob + NO aiResults + NO feedback → hiện feedback (nếu có) */}
+      {activeJob && activeJob.status === "failed" && (
+        <div className="text-sm px-4 py-2.5 rounded-xl border text-rose-300 bg-rose-500/10 border-rose-500/20 whitespace-pre-wrap">
+          ⚠️ {t("admin.tokenSecurity.jobFailed", {
+            failed: activeJob.failed_count ?? 0,
+            total: activeJob.result_summary?.total_requested ?? activeJob.total_tokens ?? 0,
+            analyzed: activeJob.analyzed_count ?? 0,
+          })}
+          {activeJob.error_message && (
+            <span className="block mt-1 text-xs text-rose-200/80 whitespace-pre-wrap">
+              Chi tiết: {activeJob.error_message}
+            </span>
+          )}
+        </div>
+      )}
+      {activeJob && activeJob.status !== "failed" && (
+        <div className={`text-sm px-4 py-2.5 rounded-xl border ${
+          activeJob.status === "completed"
+            ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
+            : "text-sky-300 bg-sky-500/10 border-sky-500/20"
+        }`}>
+          {activeJob.status === "completed"
+            ? t("admin.tokenSecurity.aiAnalyzed", {
+                count: activeJob.result_summary?.ai_analyzed ?? activeJob.analyzed_count ?? aiResults.length ?? 0,
+              })
+            : t("admin.tokenSecurity.jobAnalyzing", {
+                analyzed: activeJob.analyzed_count,
+                total: activeJob.total_tokens,
+                skipped: activeJob.skipped_cached,
+                pct: activeJob.progress_pct,
+              })}
+        </div>
+      )}
+      {!activeJob && aiResults.length > 0 && (
+        <div className="text-sm px-4 py-2.5 rounded-xl border text-emerald-300 bg-emerald-500/10 border-emerald-500/20">
+          {t("admin.tokenSecurity.aiAnalyzed", { count: aiResults.length })}
+        </div>
+      )}
+
+      {/* Feedback (chỉ hiện khi KHÔNG có activeJob, KHÔNG có aiResults — tránh đè banner đồng bộ) */}
+      {feedback && !activeJob && aiResults.length === 0 && (
         <p className={`text-sm px-4 py-2.5 rounded-xl border ${
           feedback.type === "ok"
             ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
@@ -916,6 +1142,63 @@ export default function AdminTokenSecurityPage() {
                 </span>
               )}
             </p>
+
+            {analyzing && activeJob && (
+              <div className="mb-5 space-y-3 rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <LoadingSpinner size="sm" />
+                    <span className="text-sm font-medium text-white/85">
+                      {activeJob.status === "pending"
+                        ? (t("admin.tokenSecurity.jobPending") ?? "Pending…")
+                        : activeJob.status === "running"
+                          ? (t("admin.tokenSecurity.jobRunning") ?? "Analyzing in background…")
+                          : activeJob.status}
+                    </span>
+                  </div>
+                  <span className="text-xs font-bold text-emerald-300 tabular-nums">
+                    {activeJob.progress_pct}%
+                  </span>
+                </div>
+                <div className="relative h-2.5 w-full overflow-hidden rounded-full bg-white/5 ring-1 ring-white/10">
+                  <div
+                    className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all"
+                    style={{ width: `${Math.max(2, Math.min(100, activeJob.progress_pct))}%` }}
+                  />
+                </div>
+                <div className="grid grid-cols-4 gap-2 text-[11px]">
+                  <div>
+                    <p className="text-slate-500 dark:text-white/30">Total</p>
+                    <p className="font-semibold text-white/80 tabular-nums">{activeJob.total_tokens}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500 dark:text-white/30">Analyzed</p>
+                    <p className="font-semibold text-emerald-300 tabular-nums">{activeJob.analyzed_count}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500 dark:text-white/30">Skipped</p>
+                    <p className="font-semibold text-sky-300 tabular-nums">{activeJob.skipped_cached}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500 dark:text-white/30">Failed</p>
+                    <p className="font-semibold text-rose-300 tabular-nums">{activeJob.failed_count}</p>
+                  </div>
+                </div>
+                {activeJob.result_summary && activeJob.status === "completed" && (
+                  <div className="text-[11px] text-slate-400 dark:text-white/45 border-t border-white/5 pt-2">
+                    High risk: <span className="text-rose-300 font-semibold">{activeJob.result_summary.high_risk_count ?? 0}</span>
+                    <span className="mx-2">·</span>
+                    Revoke: <span className="text-amber-300 font-semibold">{activeJob.result_summary.revoke_recommendations ?? 0}</span>
+                    <span className="mx-2">·</span>
+                    Saved: <span className="text-emerald-300 font-semibold">{activeJob.result_summary.saved_snapshots ?? 0}</span>
+                  </div>
+                )}
+                {activeJob.error_message && activeJob.status === "failed" && (
+                  <p className="text-[11px] text-rose-300 truncate">{activeJob.error_message}</p>
+                )}
+              </div>
+            )}
+
             <button
               type="button"
               onClick={() => void runAiAnalyze()}
@@ -1023,30 +1306,57 @@ export default function AdminTokenSecurityPage() {
           )}
           {trends && !trendsLoading && (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {[
-                  { label: t("admin.tokenSecurity.trendTokenAccess"), value: trends.totals.access_events, color: "text-violet-400" },
-                  { label: t("admin.tokenSecurity.trendAiAlerts"), value: trends.totals.ai_alerts, color: "text-amber-400" },
-                  { label: "Score AI ≥50%", value: trends.totals.ai_high_scores, color: "text-rose-400" },
-                  { label: "Rule ≠ AI", value: trends.totals.rule_ai_disagree, color: "text-orange-400" },
-                ].map(({ label, value, color }) => (
-                  <div key={label} className={`${surfaceCard} p-4 text-center`}>
-                    <p className={`text-2xl font-bold ${color}`}>{value}</p>
-                    <p className="text-[11px] text-slate-600 dark:text-white/35 mt-1">{label}</p>
-                    <p className="text-[10px] text-slate-500 dark:text-white/25">{t("admin.tokenSecurity.days", { count: trends.days })}</p>
+              <div className="rounded-3xl border border-white/10 bg-slate-950/55 backdrop-blur-md p-4 sm:p-5">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-100 dark:text-white/90">
+                      {t("admin.tokenSecurity.tabTrends")}
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-white/35">
+                      {t("admin.tokenSecurity.days", { count: trends.days })} · {t("admin.tokenSecurity.trendReadableHint")}
+                    </p>
                   </div>
-                ))}
+                </div>
+                <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+                  {[
+                    { label: t("admin.tokenSecurity.trendTokenAccess"), value: trends.totals.access_events, color: "text-violet-400" },
+                    { label: t("admin.tokenSecurity.trendAiAlerts"), value: trends.totals.ai_alerts, color: "text-amber-400" },
+                    { label: "Score AI ≥50%", value: trends.totals.ai_high_scores, color: "text-rose-400" },
+                    { label: "Rule ≠ AI", value: trends.totals.rule_ai_disagree, color: "text-orange-400" },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="rounded-2xl border border-white/10 bg-slate-950/55 px-4 py-4">
+                      <p className={`text-3xl font-bold ${color}`}>{value}</p>
+                      <p className="mt-2 text-xs font-medium text-slate-200 dark:text-white/75">{label}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-white/30">{t("admin.tokenSecurity.days", { count: trends.days })}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="grid sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
                 {[
-                  { title: t("admin.tokenSecurity.chartTokenPerDay"), data: trends.access_events, color: "bg-violet-500/70" },
-                  { title: t("admin.tokenSecurity.chartAiAlertsPerDay"), data: trends.ai_alerts, color: "bg-amber-500/70" },
-                  { title: t("admin.tokenSecurity.chartAiHighPerDay"), data: trends.ai_high_scores, color: "bg-rose-500/70" },
-                  { title: t("admin.tokenSecurity.chartRuleDisagreePerDay"), data: trends.rule_ai_disagree, color: "bg-orange-500/70" },
-                ].map(({ title, data, color }) => (
-                  <div key={title} className={`${surfaceCard} p-5`}>
-                    <h4 className="text-xs font-semibold text-slate-600 dark:text-white/50 mb-4">{title}</h4>
-                    <MiniBarChart labels={trends.labels} series={data} colorClass={color} />
+                  { title: t("admin.tokenSecurity.chartTokenPerDay"), data: trends.access_events, color: "bg-violet-500/70", dot: "bg-violet-400" },
+                  { title: t("admin.tokenSecurity.chartAiAlertsPerDay"), data: trends.ai_alerts, color: "bg-amber-500/70", dot: "bg-amber-400" },
+                  { title: t("admin.tokenSecurity.chartAiHighPerDay"), data: trends.ai_high_scores, color: "bg-rose-500/70", dot: "bg-rose-400" },
+                  { title: t("admin.tokenSecurity.chartRuleDisagreePerDay"), data: trends.rule_ai_disagree, color: "bg-orange-500/70", dot: "bg-orange-400" },
+                ].map(({ title, data, color, dot }) => (
+                  <div key={title} className="rounded-3xl border border-white/10 bg-slate-950/60 backdrop-blur-md p-5 sm:p-6">
+                    <div className="mb-4 flex items-start justify-between gap-3">
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-100 dark:text-white/85">{title}</h4>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-white/30">
+                          {data.some((v) => v > 0)
+                            ? t("admin.tokenSecurity.trendHoverHint")
+                            : t("admin.tokenSecurity.trendQuietPeriod")}
+                        </p>
+                      </div>
+                      <span className={`h-2.5 w-2.5 rounded-full ${dot}`} />
+                    </div>
+                    <MiniBarChart
+                      labels={trends.labels}
+                      series={data}
+                      colorClass={color}
+                      emptyLabel={t("admin.tokenSecurity.trendQuietPeriod")}
+                    />
                   </div>
                 ))}
               </div>
@@ -1085,7 +1395,12 @@ export default function AdminTokenSecurityPage() {
                 ].map(({ title, data, color }) => (
                   <div key={title} className={`${surfaceCard} p-5`}>
                     <h4 className="text-xs font-semibold text-slate-600 dark:text-white/50 mb-4">{title}</h4>
-                    <MiniBarChart labels={fileActivity.labels} series={data} colorClass={color} />
+                    <MiniBarChart
+                      labels={fileActivity.labels}
+                      series={data}
+                      colorClass={color}
+                      emptyLabel={t("admin.tokenSecurity.noDownloadsInDays", { days: fileActivity.days })}
+                    />
                   </div>
                 ))}
               </div>
@@ -1110,6 +1425,7 @@ export default function AdminTokenSecurityPage() {
                           labels={fileActivity.labels}
                           series={f.downloads_per_day}
                           colorClass="bg-emerald-500/70"
+                          emptyLabel={t("admin.tokenSecurity.noDownloadsInDays", { days: fileActivity.days })}
                         />
                       </div>
                     ))}
