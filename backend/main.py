@@ -1,44 +1,144 @@
 """
 Secure File Sharing — FastAPI backend
-Phase 1: JWT auth + RBAC bảo vệ tất cả endpoint nhạy cảm.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load .env trước mọi import đọc os.getenv
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 import logging
 import os
-from datetime import datetime, timezone
 import uuid
+import warnings
+from contextlib import asynccontextmanager
 
-from azure.core.exceptions import ResourceNotFoundError
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.responses import JSONResponse
 
-from auth import CurrentUser, get_current_user, verify_jwt
-from db.dependencies import get_db, get_db_context
-from db.models import User, UserPublicKey
-from routers.auth_router import router as auth_router
-from routers.token_security_router import router as token_security_router
-from routers.upload_router import router as upload_router
-from schemas.keys import KeyRecord
+from auth import verify_jwt
+from db.dependencies import get_db_context
+from middleware import SecurityHeadersMiddleware
+from routers import (
+    auth_router,
+    integrations_router,
+    keys_router,
+    token_security_router,
+    upload_router,
+    vault_router,
+)
 from services import token_security as ts
 
 logger = logging.getLogger(__name__)
 
+
+# ── A02: Startup secret-strength check ────────────────────────────────────────
+
+def _validate_startup_config() -> None:
+    """
+    Kiểm tra cấu hình bảo mật khi khởi động.
+    - Development (APP_ENV=development): chỉ warning, không block.
+    - Production (mặc định): raise RuntimeError nếu vi phạm → server không start.
+    """
+    is_production = os.getenv("APP_ENV", "production").lower() not in ("development", "dev", "test")
+    errors: list[str] = []
+
+    # Fix #1 — A02: JWT_SECRET đủ mạnh
+    jwt_secret = os.getenv("JWT_SECRET", "")
+    jwt_algo = os.getenv("JWT_ALGORITHM", "HS256")
+    if jwt_algo.startswith("HS"):
+        if not jwt_secret:
+            errors.append(
+                "[A02] JWT_SECRET chưa được set. "
+                "Tạo bằng: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+            )
+        elif len(jwt_secret) < 32:
+            errors.append(
+                f"[A02] JWT_SECRET quá ngắn ({len(jwt_secret)} ký tự, cần ≥ 32). "
+                "Tạo bằng: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+            )
+
+    # Fix #2 — A05: CORS không wildcard
+    raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+    origins_list = [o.strip() for o in raw_origins.split(",") if o.strip()]
+    if "*" in origins_list or not origins_list:
+        errors.append(
+            "[A05] ALLOWED_ORIGINS chứa '*' hoặc chưa được set. "
+            "Ví dụ: ALLOWED_ORIGINS=https://locksend.app"
+        )
+
+    # Fix #4 — A05: COOKIE_SECURE phải bật trên production
+    cookie_secure = os.getenv("COOKIE_SECURE", "false").lower()
+    if cookie_secure != "true":
+        errors.append(
+            "[A05] COOKIE_SECURE=false trên production — refresh token cookie "
+            "có thể bị gửi qua HTTP. Set COOKIE_SECURE=true khi đã có HTTPS."
+        )
+
+    if errors:
+        if is_production:
+            msg = "\n".join(f"  • {e}" for e in errors)
+            raise RuntimeError(
+                f"\n\n🔒 SECURITY: Server từ chối khởi động — vi phạm bảo mật production:\n{msg}\n\n"
+                "Để bỏ qua (chỉ dev): set APP_ENV=development\n"
+            )
+        else:
+            for e in errors:
+                warnings.warn(f"SECURITY (dev mode, bỏ qua): {e}", stacklevel=2)
+                logger.warning("SECURITY dev-mode warning: %s", e)
+
+
+_validate_startup_config()
+
 # ── App ───────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Secure File Sharing API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from services.scheduled_cleanup import start_scheduled_cleanup, stop_scheduled_cleanup
+    from services.scheduled_retrain import start_scheduled_retrain, stop_scheduled_retrain
+    from services.azure_storage import check_container_not_public
+
+    # Fix #8 — A01/A05: Kiểm tra Azure container không public khi khởi động
+    import asyncio
+    asyncio.get_event_loop().run_in_executor(None, check_container_not_public)
+
+    cleanup_task = start_scheduled_cleanup()
+    retrain_task = start_scheduled_retrain()
+    try:
+        yield
+    finally:
+        await stop_scheduled_cleanup(cleanup_task)
+        await stop_scheduled_retrain(retrain_task)
+        from services.locksend_ai import close_http_client
+        await close_http_client()
+
+
+app = FastAPI(
+    title="Secure File Sharing API",
+    version="1.0.0",
+    lifespan=lifespan,
+    # A05: ẩn thông tin lỗi nội bộ trên production
+    openapi_url="/openapi.json" if os.getenv("APP_ENV", "production") != "production" else None,
+    docs_url="/docs" if os.getenv("APP_ENV", "production") != "production" else None,
+    redoc_url="/redoc" if os.getenv("APP_ENV", "production") != "production" else None,
+)
 
 _RAW_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173")
 ALLOWED_ORIGINS = [o.strip() for o in _RAW_ORIGINS.split(",") if o.strip()]
 
 app.include_router(auth_router)
+app.include_router(integrations_router)
+app.include_router(keys_router)
 app.include_router(token_security_router)
 app.include_router(upload_router)
+app.include_router(vault_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -46,10 +146,33 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Encryption-Metadata-B64", "X-File-Id"],
 )
 
-# ── Request-ID middleware ─────────────────────────────────────────────────────
+# A05: Security headers (phải add sau CORS để không bị ghi đè)
+app.add_middleware(SecurityHeadersMiddleware)
 
+
+# A05: Custom exception handler — ẩn internal error details trên production
+@app.exception_handler(Exception)
+async def _generic_error_handler(request: Request, exc: Exception):
+    if os.getenv("APP_ENV", "production") != "production":
+        raise exc  # Dev: vẫn hiện traceback qua Starlette default
+    logger.exception("Unhandled error: %s %s — %s", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Lỗi máy chủ nội bộ. Vui lòng thử lại sau."},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+    )
+
+# ── Middleware ────────────────────────────────────────────────────────────────
 
 _SKIP_LOG_PATHS = frozenset({"/health", "/docs", "/openapi.json", "/redoc"})
 _SENSITIVE_PREFIXES = ("/auth/admin/token-security",)
@@ -68,7 +191,7 @@ async def request_id_middleware(request: Request, call_next):
 async def jwt_access_log_middleware(request: Request, call_next):
     """
     Ghi TokenAccessLog cho mọi request có Bearer token hợp lệ.
-    Bỏ qua: health, docs, token-security admin endpoints (tránh vòng lặp).
+    Bỏ qua: health, docs, token-security admin endpoints.
     """
     response = await call_next(request)
 
@@ -92,8 +215,6 @@ async def jwt_access_log_middleware(request: Request, call_next):
             request.client.host if request.client else None
         )
 
-        from db.dependencies import get_db_context
-
         async with get_db_context() as db:
             from sqlalchemy import select
             from db.models import User as _User
@@ -114,125 +235,52 @@ async def jwt_access_log_middleware(request: Request, call_next):
                 http_method=request.method,
                 status_code=response.status_code,
             )
+
+        if user_id and response.status_code < 500:
+            from services.ai_realtime import schedule_token_access_scan
+
+            schedule_token_access_scan(
+                token_type="jwt",
+                token_ref=token_ref,
+                user_id=user_id,
+                endpoint=path,
+                ip_address=ip,
+            )
     except Exception:
         pass
 
     return response
 
 
-KEY_VAULT_URL = os.getenv("AZURE_KEY_VAULT_URL", "")
-
-_credential = DefaultAzureCredential()
-
-
-def get_secret_client() -> SecretClient:
-    if not KEY_VAULT_URL:
-        raise HTTPException(status_code=503, detail="Key Vault not configured")
-    return SecretClient(vault_url=KEY_VAULT_URL, credential=_credential)
-
-
-# ── Health (public) ───────────────────────────────────────────────────────────
+# ── Health & root (public) ────────────────────────────────────────────────────
 
 
 @app.get("/health", tags=["ops"])
-def health():
-    return {"status": "ok"}
+async def health():
+    from services import locksend_ai
+
+    ai = await locksend_ai.health()
+    payload: dict = {
+        "status": "ok",
+        "locksend_ai": {
+            "ready": bool(ai.get("ready")),
+            "mode": ai.get("mode", "unknown"),
+        },
+    }
+    if ai.get("ai_url"):
+        payload["locksend_ai"]["ai_url"] = ai["ai_url"]
+    if ai.get("error"):
+        payload["locksend_ai"]["error"] = ai["error"]
+    if ai.get("hint"):
+        payload["locksend_ai"]["hint"] = ai["hint"]
+    return payload
 
 
-# ── Keys ──────────────────────────────────────────────────────────────────────
-
-
-@app.get("/keys/{user_id}", tags=["keys"])
-async def get_public_key(
-    user_id: str,
-    _: CurrentUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Lấy public key của user từ DB (fallback từ Key Vault nếu có)."""
-    # Thử Key Vault trước nếu được cấu hình
-    if KEY_VAULT_URL:
-        try:
-            client = get_secret_client()
-            x25519 = client.get_secret(f"pubkey-x25519-{user_id}").value
-            ed25519 = client.get_secret(f"pubkey-ed25519-{user_id}").value
-            return {
-                "user_id": user_id,
-                "public_key_x25519": x25519,
-                "public_key_ed25519": ed25519,
-            }
-        except ResourceNotFoundError:
-            pass  # fallback sang DB
-        except Exception as exc:
-            logger.warning("Key Vault get error, falling back to DB: %s", exc)
-
-    # Fallback: đọc từ DB qua external_id
-    user_row = (await db.execute(
-        select(User).where(User.external_id == user_id)
-    )).scalar_one_or_none()
-    if user_row:
-        krow = (await db.execute(
-            select(UserPublicKey).where(UserPublicKey.user_id == user_row.id, UserPublicKey.is_active.is_(True))
-        )).scalar_one_or_none()
-        if krow:
-            return {
-                "user_id": user_id,
-                "public_key_x25519": krow.public_key_x25519,
-                "public_key_ed25519": krow.public_key_ed25519,
-            }
-    raise HTTPException(status_code=404, detail=f"Key not found for user '{user_id}'")
-
-
-@app.post("/keys", status_code=201, tags=["keys"])
-async def store_public_key(
-    record: KeyRecord,
-    current: CurrentUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Lưu public key lên Key Vault + upsert vào DB.
-    User chỉ được tự ghi key của mình (hoặc admin ghi cho người khác).
-    """
-    if record.user_id != current.external_id and current.role != "admin":
-        raise HTTPException(
-            status_code=403,
-            detail="Chỉ được lưu key của chính mình",
-        )
-
-    # Key Vault là tuỳ chọn — bỏ qua nếu chưa cấu hình (local dev)
-    if KEY_VAULT_URL:
-        try:
-            client = get_secret_client()
-            client.set_secret(f"pubkey-x25519-{record.user_id}", record.public_key_x25519)
-            client.set_secret(f"pubkey-ed25519-{record.user_id}", record.public_key_ed25519)
-        except Exception as exc:
-            logger.warning("Key Vault set error (non-fatal): %s", exc)
-
-    result = await db.execute(select(User).where(User.external_id == record.user_id))
-    user = result.scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=404, detail="User không tồn tại trong hệ thống")
-
-    result2 = await db.execute(
-        select(UserPublicKey)
-        .where(UserPublicKey.user_id == user.id, UserPublicKey.is_active.is_(True))
-    )
-    existing = result2.scalar_one_or_none()
-    if existing:
-        existing.is_active = False
-        existing.rotated_at = datetime.now(timezone.utc)
-        new_version = existing.key_version + 1
-    else:
-        new_version = 1
-
-    db.add(
-        UserPublicKey(
-            user_id=user.id,
-            public_key_x25519=record.public_key_x25519,
-            public_key_ed25519=record.public_key_ed25519,
-            key_version=new_version,
-            is_active=True,
-        )
-    )
-    logger.info("Public key stored for user %s (version %d)", user.id, new_version)
-    return {"status": "stored", "user_id": record.user_id}
-
+@app.get("/", tags=["ops"])
+def root():
+    return {
+        "status": "ok",
+        "service": "secure-file-sharing-backend",
+        "docs": "/docs",
+        "health": "/health",
+    }

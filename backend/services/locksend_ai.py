@@ -14,6 +14,7 @@ Env:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import sys
@@ -21,10 +22,21 @@ from typing import Any
 
 import httpx
 
+from services.ai_explain import enrich_ai_result
+from services.ssrf_guard import validate_locksend_ai_url
+
 logger = logging.getLogger(__name__)
 
 LOCKSEND_AI_URL = os.getenv("LOCKSEND_AI_URL", "").rstrip("/")
 LOCKSEND_AI_API_KEY = os.getenv("LOCKSEND_AI_API_KEY", "").strip()
+
+# A10: Validate SSRF trước khi sử dụng URL
+if LOCKSEND_AI_URL:
+    try:
+        LOCKSEND_AI_URL = validate_locksend_ai_url(LOCKSEND_AI_URL)
+    except ValueError as _ssrf_err:
+        logger.error("SECURITY A10: LOCKSEND_AI_URL bị từ chối — %s", _ssrf_err)
+        LOCKSEND_AI_URL = ""
 def _default_ai_dir() -> str:
     """Monorepo: <repo>/locksend-ai (cạnh backend/, frontend/)."""
     here = os.path.dirname(os.path.abspath(__file__))
@@ -39,6 +51,35 @@ REMOTE_MODE = bool(LOCKSEND_AI_URL)
 
 if not REMOTE_MODE and LOCKSEND_AI_DIR not in sys.path:
     sys.path.insert(0, LOCKSEND_AI_DIR)
+
+# Shared httpx client — reuse connections across requests to avoid ephemeral port exhaustion.
+# Created lazily; closed by close_http_client() in FastAPI lifespan shutdown.
+_http_client: httpx.AsyncClient | None = None
+_http_client_lock = asyncio.Lock()
+
+
+async def _get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        async with _http_client_lock:
+            if _http_client is None or _http_client.is_closed:
+                _http_client = httpx.AsyncClient(
+                    timeout=LOCKSEND_AI_TIMEOUT,
+                    limits=httpx.Limits(
+                        max_connections=20,
+                        max_keepalive_connections=10,
+                        keepalive_expiry=30,
+                    ),
+                )
+    return _http_client
+
+
+async def close_http_client() -> None:
+    """Close the shared httpx client. Call from FastAPI lifespan finally block."""
+    global _http_client
+    if _http_client and not _http_client.is_closed:
+        await _http_client.aclose()
+    _http_client = None
 
 _bundle: dict[str, Any] | None = None
 _load_error: str | None = None
@@ -79,6 +120,28 @@ def _ensure_loaded() -> None:
         raise RuntimeError(_load_error) from exc
 
 
+def reload_bundle() -> dict[str, Any]:
+    """
+    Hot-reload model.pkl vào RAM sau khi train.py chạy xong.
+
+    Reset cache buộc _ensure_loaded() đọc lại file từ disk.
+    An toàn khi gọi từ thread pool (asyncio.to_thread) vì chỉ thao tác
+    global module-level và pickle.load — không có race condition với
+    inference đang chạy (CPython GIL bảo vệ việc gán _bundle).
+    """
+    global _bundle, _load_error
+    _bundle = None
+    _load_error = None
+    _ensure_loaded()
+    assert _bundle is not None
+    logger.info(
+        "LockSend AI bundle reloaded (version=%s, trained_at=%s)",
+        _bundle.get("version"),
+        _bundle.get("trained_at"),
+    )
+    return _bundle
+
+
 def _token_metric_to_cic(metric: dict[str, Any]) -> dict[str, float]:
     raw_rate = float(
         metric.get("accesses_per_hour")
@@ -90,25 +153,44 @@ def _token_metric_to_cic(metric: dict[str, Any]) -> dict[str, float]:
     ip_count = float(metric.get("ip_count") or 1)
     token_age_hours = float(metric.get("token_age_hours") or 0)
 
+    # A03: Clamp giá trị về range hợp lệ — tránh NaN/Inf làm lệch model
+    flow_packets_s = max(0.0, min(flow_packets_s, 1e6))
+    active_sessions = max(0.0, min(active_sessions, 1e5))
+    ip_count = max(1.0, min(ip_count, 1e4))
+    token_age_hours = max(0.0, min(token_age_hours, 8760.0))  # tối đa 1 năm
+
+    # TRUST Lab / CICFlowMeter 4.x (Pkts, Byts, Dst Port) + alias CIC-IDS2017 cũ
+    flow_bytes_s = flow_packets_s * 1024.0
+    duration_us = token_age_hours * 3_600_000_000.0
+    active_max = token_age_hours * 1_000_000.0
+    dst_port = ip_count * 100.0
     return {
+        # TRUST Lab 2026 / combined model (ưu tiên)
+        "Flow Pkts/s": flow_packets_s,
+        "Flow Byts/s": flow_bytes_s,
+        "Flow Duration": duration_us,
+        "Active Max": active_max,
+        "Idle Max": 0.0,
+        "Tot Fwd Pkts": active_sessions,
+        "Tot Bwd Pkts": 0.0,
+        "Subflow Fwd Pkts": active_sessions,
+        "Dst Port": dst_port,
+        # CIC-IDS2017 legacy (model cũ)
         "Flow Packets/s": flow_packets_s,
-        "Flow Bytes/s": flow_packets_s * 1024.0,
+        "Flow Bytes/s": flow_bytes_s,
         "Fwd Packets/s": flow_packets_s * 0.7,
         "Bwd Packets/s": flow_packets_s * 0.3,
-        "Flow Duration": token_age_hours * 3_600_000_000.0,
-        "Active Max": token_age_hours * 1_000_000.0,
-        "Idle Max": 0.0,
         "Total Fwd Packets": active_sessions,
         "Total Backward Packets": 0.0,
         "Subflow Fwd Packets": active_sessions,
-        "Destination Port": ip_count * 100.0,
+        "Destination Port": dst_port,
     }
 
 
 def _normalize_result(result: dict[str, Any], metric: dict[str, Any]) -> dict[str, Any]:
     risk_raw: float = float(result["risk_score"])
     ai_level: str = str(result["risk_level"])
-    return {
+    base = {
         "risk_score_pct": round(risk_raw * 100),
         "risk_score_raw": risk_raw,
         "risk_level": _LEVEL_MAP.get(ai_level, "medium"),
@@ -119,24 +201,31 @@ def _normalize_result(result: dict[str, Any], metric: dict[str, Any]) -> dict[st
         "token_id": metric.get("token_id"),
         "token_type": metric.get("token_type"),
     }
+    return enrich_ai_result(base, metric)
 
 
 async def _remote_health() -> dict[str, Any]:
+    # Lần đầu AI có thể đang tải model.pkl (~95MB) — cần timeout dài hơn 10s
+    health_timeout = max(LOCKSEND_AI_TIMEOUT, 120.0)
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            res = await client.get(f"{LOCKSEND_AI_URL}/health", headers=_auth_headers())
-            res.raise_for_status()
-            data = res.json()
-            data["mode"] = "remote"
-            data["ai_url"] = LOCKSEND_AI_URL
-            return data
+        client = await _get_http_client()
+        res = await client.get(
+            f"{LOCKSEND_AI_URL}/health",
+            headers=_auth_headers(),
+            timeout=health_timeout,
+        )
+        res.raise_for_status()
+        data = res.json()
+        data["mode"] = "remote"
+        data["ai_url"] = LOCKSEND_AI_URL
+        return data
     except httpx.HTTPError as exc:
         return {
             "ready": False,
             "mode": "remote",
             "ai_url": LOCKSEND_AI_URL,
             "error": str(exc),
-            "hint": "Kiểm tra AI service trên Ubuntu: systemctl status locksend-ai",
+            "hint": "Kiểm tra locksend-ai Online, /health → ready:true, LOCKSEND_AI_API_KEY khớp BE↔AI",
         }
 
 
@@ -167,14 +256,14 @@ async def health() -> dict[str, Any]:
 
 async def _remote_analyze_token(metric: dict[str, Any]) -> dict[str, Any]:
     features = _token_metric_to_cic(metric)
-    async with httpx.AsyncClient(timeout=LOCKSEND_AI_TIMEOUT) as client:
-        res = await client.post(
-            f"{LOCKSEND_AI_URL}/analyze",
-            json={"features": features},
-            headers=_auth_headers(),
-        )
-        res.raise_for_status()
-        return _normalize_result(res.json(), metric)
+    client = await _get_http_client()
+    res = await client.post(
+        f"{LOCKSEND_AI_URL}/analyze",
+        json={"features": features},
+        headers=_auth_headers(),
+    )
+    res.raise_for_status()
+    return _normalize_result(res.json(), metric)
 
 
 def _local_analyze_token(metric: dict[str, Any]) -> dict[str, Any]:
@@ -197,14 +286,14 @@ async def analyze_batch(metrics: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if REMOTE_MODE:
         features_list = [_token_metric_to_cic(m) for m in metrics]
         try:
-            async with httpx.AsyncClient(timeout=LOCKSEND_AI_TIMEOUT) as client:
-                res = await client.post(
-                    f"{LOCKSEND_AI_URL}/analyze/batch",
-                    json={"items": features_list},
-                    headers=_auth_headers(),
-                )
-                res.raise_for_status()
-                raw_results = res.json().get("results", [])
+            client = await _get_http_client()
+            res = await client.post(
+                f"{LOCKSEND_AI_URL}/analyze/batch",
+                json={"items": features_list},
+                headers=_auth_headers(),
+            )
+            res.raise_for_status()
+            raw_results = res.json().get("results", [])
         except httpx.HTTPError as exc:
             raise RuntimeError(f"LockSend AI remote error: {exc}") from exc
 

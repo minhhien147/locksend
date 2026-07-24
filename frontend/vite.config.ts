@@ -3,13 +3,17 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig(({ mode }) => {
+  const isRailway = !!process.env.RAILWAY_ENVIRONMENT;
+  const isCloudflarePage = !!process.env.CF_PAGES;
+
   if (
     mode === "production" &&
-    process.env.VERCEL === "1" &&
+    (isRailway || isCloudflarePage) &&
     !process.env.VITE_API_URL?.trim()
   ) {
     throw new Error(
-      "VITE_API_URL is required on Vercel (URL backend Railway, không có dấu / cuối)."
+      "VITE_API_URL is required for production builds (Railway / Cloudflare Pages). " +
+        "Set it in Dashboard → Settings → Environment Variables."
     );
   }
 
@@ -24,6 +28,21 @@ export default defineConfig(({ mode }) => {
           rewrite: (path) => path.replace(/^\/api/, ""),
         },
       },
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: (id) => {
+            if (id.includes("node_modules/react") || id.includes("node_modules/react-dom") || id.includes("node_modules/react-router-dom")) {
+              return "vendor";
+            }
+            if (id.includes("node_modules/@noble")) {
+              return "crypto";
+            }
+          },
+        },
+      },
+      chunkSizeWarningLimit: 600,
     },
   };
 });

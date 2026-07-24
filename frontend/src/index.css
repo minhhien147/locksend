@@ -1,6 +1,76 @@
 @import "tailwindcss";
 
+@source "./**/*.{tsx,ts,jsx,js}";
+@source "../index.html";
+
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* Auth — layout cố định (vẫn chạy nếu Tailwind lỗi / import nhầm style.css) */
+.ls-auth {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  min-height: 100vh;
+  width: 100%;
+  position: relative;
+}
+
+.ls-auth__shell {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  flex: 1;
+  width: 100%;
+  min-height: 100vh;
+  position: relative;
+  z-index: 20;
+  isolation: isolate;
+}
+
+.ls-auth-aside {
+  display: none;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+  padding: 2.5rem;
+  flex-shrink: 0;
+}
+
+.ls-auth-panel {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 1.5rem 2rem;
+  min-width: 0;
+}
+
+.ls-auth-aside img {
+  max-height: 2.75rem;
+  width: auto;
+  object-fit: contain;
+}
+
+@media (min-width: 1024px) {
+  .ls-auth-aside {
+    display: flex;
+    width: 42%;
+    max-width: 42%;
+  }
+}
+
+@media (min-width: 1280px) {
+  .ls-auth-aside {
+    width: 38%;
+    max-width: 38%;
+  }
+}
+
+#root {
+  min-height: 100vh;
+  background-color: transparent;
+}
 
 /* ── Theme tokens ───────────────────────────────────────────────── */
 :root {
@@ -15,47 +85,84 @@
 
 .dark {
   color-scheme: dark;
-  --ls-bg: #0b0d12;
-  --ls-surface: #0c0e14;
-  --ls-input: #12141c;
+  --ls-bg: #0a0e14;
+  --ls-surface: #0d1118;
+  --ls-input: #12161f;
   --ls-border: rgba(255, 255, 255, 0.08);
-  --ls-text: #f8fafc;
-  --ls-muted: rgba(255, 255, 255, 0.4);
+  --ls-text: #e8eaed;
+  --ls-muted: rgba(255, 255, 255, 0.42);
+  --ls-accent: #3b82f6;
 }
 
 html,
 body {
-  background-color: var(--ls-bg);
+  background-color: transparent;
   color: var(--ls-text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-mono,
+code,
+[class*="font-mono"] {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+/* ── Page background — đổi ảnh: thay url("/map.jpg") trong .ls-page-bg ── */
+.ls-page-bg {
+  background-color: #0a0e14;
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(10, 14, 20, 0.35) 0%,
+      rgba(10, 14, 20, 0.55) 55%,
+      rgba(10, 14, 20, 0.72) 100%
+    ),
+    url("/map.jpg");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+}
+
+:root:not(.dark) .ls-page-bg {
+  background-color: #c8d0dc;
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(232, 234, 239, 0.35) 0%,
+      rgba(232, 234, 239, 0.55) 55%,
+      rgba(232, 234, 239, 0.72) 100%
+    ),
+    url("/map.jpg");
 }
 
 /* ── Floating icons — transform (GPU), luôn chạy trừ reduce-motion ─ */
 
+/* Bay khắp viewport (vw/vh) */
 @keyframes ls-drift-1 {
-  0%, 100% { transform: translate(4vw, 10vh) rotate(-8deg); }
-  25%      { transform: translate(72vw, 8vh) rotate(6deg); }
-  50%      { transform: translate(78vw, 52vh) rotate(12deg); }
-  75%      { transform: translate(12vw, 72vh) rotate(-4deg); }
+  0%, 100% { transform: translate(6vw, 12vh) rotate(-8deg); }
+  25%      { transform: translate(78vw, 18vh) rotate(6deg); }
+  50%      { transform: translate(82vw, 72vh) rotate(12deg); }
+  75%      { transform: translate(12vw, 78vh) rotate(-4deg); }
 }
 
 @keyframes ls-drift-2 {
-  0%, 100% { transform: translate(70vw, 68vh) rotate(5deg); }
+  0%, 100% { transform: translate(72vw, 68vh) rotate(5deg); }
   33%      { transform: translate(8vw, 58vh) rotate(-10deg); }
   66%      { transform: translate(18vw, 14vh) rotate(8deg); }
 }
 
 @keyframes ls-drift-3 {
-  0%, 100% { transform: translate(38vw, 78vh) rotate(-6deg); }
-  50%      { transform: translate(62vw, 28vh) rotate(10deg); }
+  0%, 100% { transform: translate(10vw, 82vh) rotate(-6deg); }
+  50%      { transform: translate(68vw, 38vh) rotate(10deg); }
 }
 
 @keyframes ls-drift-4 {
-  0%, 100% { transform: translate(58vw, 16vh) rotate(4deg); }
-  30%      { transform: translate(22vw, 10vh) rotate(-12deg); }
-  60%      { transform: translate(6vw, 44vh) rotate(6deg); }
-  90%      { transform: translate(44vw, 62vh) rotate(-5deg); }
+  0%, 100% { transform: translate(76vw, 10vh) rotate(4deg); }
+  30%      { transform: translate(6vw, 8vh) rotate(-12deg); }
+  60%      { transform: translate(4vw, 48vh) rotate(6deg); }
+  90%      { transform: translate(58vw, 80vh) rotate(-5deg); }
 }
 
 .ls-float-icon {

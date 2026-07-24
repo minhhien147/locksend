@@ -12,6 +12,11 @@ Endpoints:
   POST /cleanup               - xóa expired records cũ
   POST /adaptive-renewal      - đề xuất TTL mới theo risk level
   GET  /ai/health             - kiểm tra LockSend AI model
+  GET  /ai/trends             - biểu đồ trend 7–30 ngày
+  GET  /alerts                - cảnh báo AI realtime
+  POST /alerts/{id}/read      - đánh dấu đã đọc
+  GET  /files/activity        - thống kê upload/download theo file
+  GET  /files/{file_id}/activity - chi tiết hoạt động 1 file
   POST /ai/analyze            - phân tích toàn bộ token bằng LockSend AI
   POST /ai/analyze/token      - phân tích 1 token bằng LockSend AI
 """
@@ -27,8 +32,10 @@ from pydantic import BaseModel, Field
 import audit
 from auth import CurrentUser, get_current_user
 from db.dependencies import get_db
-from services import locksend_ai, token_security
+from services import ai_realtime, file_activity, locksend_ai, owner_security, token_security
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 logger = logging.getLogger(__name__)
 
@@ -256,7 +263,7 @@ async def cleanup_old_records(
 ):
     """
     Dọn dẹp SAS records + access logs cũ.
-    SAS records expired > 30 ngày; access logs > 14 ngày.
+    Retention: TOKEN_SAS_RECORD_RETENTION_DAYS (mặc định 30), TOKEN_ACCESS_LOG_RETENTION_DAYS (14).
     """
     _require_admin(current)
     result = await token_security.cleanup_expired_tokens(db)
@@ -325,7 +332,9 @@ async def ai_health(
 ):
     """Kiểm tra LockSend AI model đã train và load được chưa."""
     _require_admin(current)
-    return await locksend_ai.health()
+    health = await locksend_ai.health()
+    health["realtime_enabled"] = ai_realtime.REALTIME_ENABLED
+    return health
 
 
 @router.post("/ai/analyze")
@@ -358,6 +367,9 @@ async def ai_analyze(
 
     try:
         ai_results = await locksend_ai.analyze_batch(top_metrics)
+        for metric, result in zip(top_metrics, ai_results):
+            if result and not result.get("error"):
+                await ai_realtime.save_manual_snapshot(db, metric, result)
     except RuntimeError as exc:
         ai_error = str(exc)
         logger.info("LockSend AI skipped: %s", exc)
@@ -410,8 +422,158 @@ async def ai_analyze_single(
     except RuntimeError as exc:
         ai_error = str(exc)
 
+    if ai_result and not ai_error:
+        await ai_realtime.save_manual_snapshot(db, token_data, ai_result)
+
     return {
         "token_metrics": token_data,
         "ai": ai_result,
         "ai_error": ai_error,
+    }
+
+
+@router.get("/alerts")
+async def list_security_alerts(
+    unread_only: bool = Query(default=False),
+    limit: int = Query(default=30, ge=1, le=100),
+    current: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cảnh báo AI realtime (admin)."""
+    _require_admin(current)
+    alerts = await ai_realtime.list_alerts(db, unread_only=unread_only, limit=limit)
+    unread = await ai_realtime.unread_alert_count(db)
+    return {"alerts": alerts, "unread_count": unread}
+
+
+@router.post("/alerts/{alert_id}/read")
+async def read_security_alert(
+    alert_id: str,
+    current: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_admin(current)
+    ok = await ai_realtime.mark_alert_read(db, alert_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Không tìm thấy cảnh báo")
+    return {"ok": True}
+
+
+@router.post("/alerts/read-all")
+async def read_all_security_alerts(
+    current: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_admin(current)
+    n = await ai_realtime.mark_all_alerts_read(db)
+    return {"marked": n}
+
+
+@router.get("/ai/trends")
+async def ai_security_trends(
+    days: int = Query(default=7, ge=1, le=30),
+    current: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Biểu đồ trend: access, cảnh báo AI, score cao, Rule≠AI."""
+    _require_admin(current)
+    return await ai_realtime.build_trends(db, days=days)
+
+
+@router.get("/files/activity")
+async def file_activity_overview(
+    request: Request,
+    days: int = Query(default=7, ge=1, le=30),
+    limit: int = Query(default=20, ge=1, le=50),
+    current: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Top file theo lượt tải, IP, SAS link và trend upload/download."""
+    _require_admin(current)
+    data = await file_activity.build_file_overview(db, days=days, limit=limit)
+    audit.log_event(
+        "admin.token_security.file_activity",
+        user_id=current.id,
+        role=current.role,
+        days=days,
+        request_id=audit.get_request_id(request),
+    )
+    return data
+
+
+@router.get("/files/{file_id}/activity")
+async def file_activity_detail(
+    file_id: str,
+    days: int = Query(default=7, ge=1, le=30),
+    current: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Chi tiết hoạt động một file (download gần đây, cảnh báo AI)."""
+    _require_admin(current)
+    detail = await file_activity.get_file_detail(db, file_id, days=days)
+    if not detail:
+        raise HTTPException(status_code=404, detail="File không tìm thấy")
+    return detail
+
+
+@router.post("/files/{file_id}/notify-owner")
+async def notify_file_owner(
+    file_id: str,
+    request: Request,
+    current: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin gửi cảnh báo tới owner file (IP bất thường / rủi ro SAS)."""
+    _require_admin(current)
+    from db.models import File
+
+    from db.models import User
+    from services import email_service
+    from services.user_email import is_valid_alert_email
+
+    file_row = (
+        await db.execute(
+            select(File).where(File.id == file_id).options(selectinload(File.owner))
+        )
+    ).scalar_one_or_none()
+    if not file_row:
+        raise HTTPException(status_code=404, detail="File không tìm thấy")
+
+    owner = file_row.owner
+    if owner is None and file_row.owner_id:
+        owner = (
+            await db.execute(select(User).where(User.id == file_row.owner_id))
+        ).scalar_one_or_none()
+
+    email_sent = False
+    if email_service.is_configured():
+        if not owner or not is_valid_alert_email(owner.email):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Owner chưa có email hợp lệ để nhận cảnh báo qua mail. "
+                    "Yêu cầu owner cập nhật email trong trang Hồ sơ."
+                ),
+            )
+        email_sent = True
+
+    alert = await owner_security.maybe_alert_multi_ip_access(
+        db, file_id, force=True, triggered_by="admin"
+    )
+    if alert is None:
+        raise HTTPException(status_code=500, detail="Không tạo được cảnh báo")
+    audit.log_event(
+        "admin.token_security.notify_owner",
+        user_id=current.id,
+        role=current.role,
+        file_id=file_id,
+        alert_id=alert.id,
+        request_id=audit.get_request_id(request),
+    )
+    return {
+        "status": "sent",
+        "alert_id": alert.id,
+        "owner_user_id": alert.user_id,
+        "owner_email": owner.email if owner else None,
+        "email_sent": email_sent,
     }

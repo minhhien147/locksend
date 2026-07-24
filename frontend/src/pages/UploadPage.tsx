@@ -1,13 +1,20 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Link } from "react-router-dom";
 import {
   CHUNKED_THRESHOLD,
   DEFAULT_CHUNK_SIZE,
-  loadKeysFromStorage,
-  hasKeysInStorage,
   fromBase64,
 } from "../utils/crypto";
-import { useUpload, type ChunkProgress, type RecipientUser } from "../hooks/useUpload";
+import { isUnlocked } from "../utils/keyVault";
+import {
+  useUpload,
+  type ChunkProgress,
+  type RecipientUser,
+  type UploadPurpose,
+} from "../hooks/useUpload";
+import { useClearPageDraft, useDraftState } from "../hooks/useDraftState";
+import { migrateLegacyStorage } from "../utils/pageDraft";
+import { getVaultFolders, type VaultFolder } from "../utils/api";
+import { Link } from "react-router-dom";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import KeyUnlockBanner from "../components/KeyUnlockBanner";
 import { searchUsers, getUserPublicKey, type UserSearchResult } from "../utils/api";
@@ -26,8 +33,8 @@ import {
   sectionTitle,
   surfaceInset,
   panel,
-  btn,
 } from "../styles/theme";
+import { useT } from "../i18n/context";
 
 const formatFileSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`;
@@ -37,20 +44,51 @@ const formatFileSize = (bytes: number): string => {
 };
 
 const CHUNK_MB = DEFAULT_CHUNK_SIZE / (1024 * 1024);
-
+const PAGE_KEY = "upload";
 type RecipientMode = "search" | "manual";
 
 export default function UploadPage() {
-  const [keysReady, setKeysReady] = useState(() => !!loadKeysFromStorage());
-  const hasKeys = hasKeysInStorage();
+  const t = useT();
+  const clearUploadDraft = useClearPageDraft(PAGE_KEY);
+  const [keysReady, setKeysReady] = useState(() => isUnlocked());
   const canUseKeys = keysReady;
-  const [file, setFile] = useState<File | null>(null);
-  const [recipientPublicKey, setRecipientPublicKey] = useState("");
-  const [recipientMode, setRecipientMode] = useState<RecipientMode>("search");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [file, setFile] = useDraftState<File | null>(PAGE_KEY, "file", null, "memory");
+  const [fileHint, setFileHint] = useDraftState<{ name: string; size: number } | null>(
+    PAGE_KEY,
+    "fileHint",
+    null,
+    "persist"
+  );
+  const fileNeedsReselect = !file && !!fileHint;
+  const [recipientPublicKey, setRecipientPublicKey] = useDraftState(
+    PAGE_KEY,
+    "recipientPublicKey",
+    ""
+  );
+  const [uploadPurpose, setUploadPurpose] = useDraftState<UploadPurpose>(
+    PAGE_KEY,
+    "uploadPurpose",
+    "share"
+  );
+  const [vaultFolderId, setVaultFolderId] = useDraftState<string | null>(
+    PAGE_KEY,
+    "vaultFolderId",
+    null
+  );
+  const [recipientMode, setRecipientMode] = useDraftState<RecipientMode>(
+    PAGE_KEY,
+    "recipientMode",
+    "search"
+  );
+  const [searchQuery, setSearchQuery] = useDraftState(PAGE_KEY, "searchQuery", "");
+  const [selectedRecipients, setSelectedRecipients] = useDraftState<RecipientUser[]>(
+    PAGE_KEY,
+    "selectedRecipients",
+    []
+  );
+  const [vaultFolders, setVaultFolders] = useState<VaultFolder[]>([]);
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [selectedRecipients, setSelectedRecipients] = useState<RecipientUser[]>([]);
   const [keyLoading, setKeyLoading] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -64,17 +102,29 @@ export default function UploadPage() {
     error,
     chunkProgress,
     uploadPercent,
-    plaintextChecksum,
-    recipientCount,
     isChunkedMode,
     encryptAndUpload,
     reset,
   } = useUpload();
 
   const onKeysUnlocked = () => {
-    setKeysReady(!!loadKeysFromStorage());
+    setKeysReady(isUnlocked());
     void syncPublicKeysToServer();
   };
+
+  useEffect(() => {
+    migrateLegacyStorage("sfs_upload_draft_v1", PAGE_KEY);
+  }, []);
+
+  useEffect(() => {
+    setFileHint(file ? { name: file.name, size: file.size } : null);
+  }, [file, setFileHint]);
+
+  useEffect(() => {
+    if (uploadPurpose === "vault") {
+      void getVaultFolders().then(setVaultFolders).catch(() => setVaultFolders([]));
+    }
+  }, [uploadPurpose]);
 
   useEffect(() => {
     if (searchTimerRef.current !== null) window.clearTimeout(searchTimerRef.current);
@@ -98,11 +148,11 @@ export default function UploadPage() {
 
   async function handleAddRecipient(user: UserSearchResult) {
     if (selectedRecipients.some((r) => r.userId === user.id)) {
-      setKeyError("Người này đã có trong danh sách.");
+      setKeyError(t("upload.recipientExists"));
       return;
     }
     if (!user.has_public_key) {
-      setKeyError("Người dùng này chưa đăng ký public key lên server.");
+      setKeyError(t("upload.noPublicKeyRegistered"));
       return;
     }
     setKeyError(null);
@@ -123,7 +173,7 @@ export default function UploadPage() {
       setSearchQuery("");
       setSearchResults([]);
     } catch {
-      setKeyError("Không lấy được public key. Thử lại sau.");
+      setKeyError(t("upload.fetchFailedRetry"));
     } finally {
       setKeyLoading(false);
     }
@@ -148,10 +198,9 @@ export default function UploadPage() {
   }
 
   function handleReset() {
-    setFile(null);
+    clearUploadDraft();
     setCopied(false);
     reset();
-    handleClearRecipients();
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -180,8 +229,8 @@ export default function UploadPage() {
           copied={copied}
           onCopy={handleCopySasUrl}
           onReset={handleReset}
-          plaintextChecksum={plaintextChecksum}
-          recipientCount={recipientCount}
+          purpose={uploadPurpose}
+          t={t}
         />
       </div>
     );
@@ -189,22 +238,50 @@ export default function UploadPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-5">
-      <PageHeader
-        title="Mã hóa & Upload"
-        description="Chọn file, chỉ định người nhận, mã hóa client-side rồi upload lên Azure."
-      />
+      <PageHeader title={t("upload.title")} />
 
-      {hasKeys && <KeyUnlockBanner onUnlocked={onKeysUnlocked} />}
+      <KeyUnlockBanner onUnlocked={onKeysUnlocked} />
 
-      {!hasKeys && (
-        <Alert tone="warning">
-          Bạn chưa có keypair.{" "}
-          <Link to="/keys" className="font-medium text-indigo-600 dark:text-indigo-400 underline underline-offset-2">
-            Vào trang Keys để tạo
-          </Link>{" "}
-          trước khi upload.
-        </Alert>
+      {fileNeedsReselect && !file && (
+        <Alert tone="warning">{t("upload.draftNoticeFull")}</Alert>
       )}
+
+      <Card className="space-y-3">
+        <h2 className={sectionTitle}>{t("upload.mode")}</h2>
+        <SegmentedControl
+          value={uploadPurpose}
+          onChange={(v) => setUploadPurpose(v as UploadPurpose)}
+          disabled={isBusy}
+          options={[
+            { value: "share", label: t("upload.modeShare") },
+            { value: "vault", label: t("upload.modeVault") },
+          ]}
+        />
+        {uploadPurpose === "vault" && (
+          <div>
+            <label className={label}>{t("upload.folderOptional")}</label>
+            <select
+              value={vaultFolderId ?? ""}
+              onChange={(e) => setVaultFolderId(e.target.value || null)}
+              disabled={isBusy}
+              className={`w-full mt-1 text-sm ${inputBase}`}
+            >
+              <option value="">{t("upload.folderRoot")}</option>
+              {vaultFolders.map((fo) => (
+                <option key={fo.id} value={fo.id}>
+                  {fo.name}
+                </option>
+              ))}
+            </select>
+            <p className={`text-xs mt-1.5 ${text.faint}`}>
+              {t("upload.vaultManageAt")}{" "}
+              <Link to="/profile" className="text-indigo-400 hover:underline">
+                {t("upload.openVault")}
+              </Link>
+            </p>
+          </div>
+        )}
+      </Card>
 
       <div
         onDrop={handleDrop}
@@ -229,29 +306,27 @@ export default function UploadPage() {
             <div className="flex items-center justify-center gap-2">
               <span className={`text-xs ${text.muted}`}>{formatFileSize(file.size)}</span>
               {isLargeFile && (
-                <Badge tone="warning">Chunked · {CHUNK_MB}MB/chunk</Badge>
+                <Badge tone="warning">{t("upload.chunkedBadge", { mb: CHUNK_MB })}</Badge>
               )}
             </div>
-            {!isBusy && <p className={`text-xs ${text.faint}`}>Nhấp để đổi file</p>}
+            {!isBusy && <p className={`text-xs ${text.faint}`}>{t("upload.changeFile")}</p>}
           </div>
         ) : (
-          <div className="space-y-1">
-            <p className={`text-sm font-medium ${text.secondary}`}>Kéo thả file vào đây</p>
-            <p className={`text-xs ${text.muted}`}>hoặc nhấp để chọn · mọi định dạng</p>
-          </div>
+          <p className={`text-sm font-medium ${text.secondary}`}>{t("upload.dropzone")}</p>
         )}
       </div>
 
+      {uploadPurpose === "share" && (
       <Card className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <h2 className={sectionTitle}>Người nhận</h2>
+          <h2 className={sectionTitle}>{t("upload.recipients")}</h2>
           <SegmentedControl
             value={recipientMode}
             onChange={setRecipientMode}
             disabled={isBusy}
             options={[
-              { value: "search", label: "Tìm user" },
-              { value: "manual", label: "Dán key" },
+              { value: "search", label: t("upload.searchUser") },
+              { value: "manual", label: t("upload.pasteKey") },
             ]}
           />
         </div>
@@ -261,14 +336,16 @@ export default function UploadPage() {
             {selectedRecipients.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <p className={`text-xs ${text.muted}`}>{selectedRecipients.length} người nhận</p>
+                  <p className={`text-xs ${text.muted}`}>
+                    {t("upload.recipientCount", { count: selectedRecipients.length })}
+                  </p>
                   <button
                     type="button"
                     onClick={handleClearRecipients}
                     disabled={isBusy}
                     className={`text-xs ${text.muted} hover:text-rose-600 dark:hover:text-rose-400`}
                   >
-                    Xóa tất cả
+                    {t("upload.clearAll")}
                   </button>
                 </div>
                 <ul className="flex flex-wrap gap-2">
@@ -286,7 +363,7 @@ export default function UploadPage() {
                         onClick={() => handleRemoveRecipient(r.userId)}
                         disabled={isBusy}
                         className={`p-1 rounded ${text.faint} hover:text-slate-700 dark:hover:text-slate-200`}
-                        aria-label="Xóa"
+                        aria-label={t("upload.removeRecipient")}
                       >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -302,7 +379,7 @@ export default function UploadPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Tìm theo email — thêm nhiều người nhận…"
+                placeholder={t("upload.searchPlaceholderMulti")}
                 disabled={isBusy}
                 className={`w-full pr-10 ${inputBase}`}
               />
@@ -332,9 +409,9 @@ export default function UploadPage() {
                         )}
                       </div>
                       {u.has_public_key ? (
-                        <Badge tone="success">Thêm</Badge>
+                        <Badge tone="success">{t("upload.badgeAdd")}</Badge>
                       ) : (
-                        <Badge tone="warning">Chưa có key</Badge>
+                        <Badge tone="warning">{t("upload.badgeNoKey")}</Badge>
                       )}
                     </button>
                   ))}
@@ -342,24 +419,15 @@ export default function UploadPage() {
               )}
             </div>
             {keyError && <p className="text-xs text-rose-600 dark:text-rose-400">{keyError}</p>}
-            <p className={`text-xs ${text.muted}`}>
-              Chọn từng người nhận — file xuất hiện trong lịch sử của họ.
-              {file && file.size >= CHUNKED_THRESHOLD && (
-                <span className="text-amber-700 dark:text-amber-300"> File lớn: chỉ gửi được cho một người.</span>
-              )}
-            </p>
           </div>
         ) : (
           <div className="space-y-3">
-            <Alert tone="warning">
-              Chế độ dán key không tạo bản ghi inbox. Dùng <strong>Tìm user</strong> để người nhận thấy file trong lịch sử.
-            </Alert>
             <div>
-              <label className={label}>X25519 Public Key (base64)</label>
+              <label className={label}>{t("upload.publicKeyLabel")}</label>
               <textarea
                 value={recipientPublicKey}
                 onChange={(e) => setRecipientPublicKey(e.target.value)}
-                placeholder="Dán public key của người nhận…"
+                placeholder={t("upload.keyPlaceholderRecipient")}
                 rows={3}
                 disabled={isBusy}
                 className={`w-full mt-1.5 font-mono text-sm resize-none ${inputBase}`}
@@ -368,18 +436,19 @@ export default function UploadPage() {
           </div>
         )}
       </Card>
+      )}
 
       {error && <Alert tone="error">{error}</Alert>}
 
-      {isBusy && chunkProgress && <ChunkProgressBar progress={chunkProgress} />}
+      {isBusy && chunkProgress && <ChunkProgressBar progress={chunkProgress} t={t} />}
       {isBusy && !chunkProgress && uploadPercent > 0 && (
         <Card padding="sm" className="space-y-2">
           <div className={`flex justify-between text-xs ${text.muted}`}>
-            <span>Upload ciphertext</span>
+            <span>{t("upload.uploadCiphertext")}</span>
             <span className="font-medium text-indigo-600 dark:text-indigo-400">{uploadPercent}%</span>
           </div>
           <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5">
-            <div className="bg-indigo-600 dark:bg-indigo-500 h-1.5 rounded-full transition-all" style={{ width: `${uploadPercent}%` }} />
+            <div className="bg-blue-700 dark:bg-blue-600 h-1.5 rounded-full transition-all" style={{ width: `${uploadPercent}%` }} />
           </div>
         </Card>
       )}
@@ -391,33 +460,46 @@ export default function UploadPage() {
           isBusy ||
           !canUseKeys ||
           !file ||
-          (recipientMode === "search" && (selectedRecipients.length === 0 || keyLoading)) ||
-          (recipientMode === "manual" && !recipientPublicKey.trim())
+          (uploadPurpose === "share" &&
+            recipientMode === "search" &&
+            (selectedRecipients.length === 0 || keyLoading)) ||
+          (uploadPurpose === "share" &&
+            recipientMode === "manual" &&
+            !recipientPublicKey.trim())
         }
         onClick={() =>
           encryptAndUpload(
             file,
             recipientMode === "search" ? selectedRecipients : [],
-            recipientMode === "manual" ? recipientPublicKey : undefined
+            recipientMode === "manual" ? recipientPublicKey : undefined,
+            { purpose: uploadPurpose, folderId: vaultFolderId }
           )
         }
       >
         {stage === "encrypting"
           ? isChunkedMode
-            ? `Mã hóa chunk (${CHUNK_MB}MB)…`
-            : "Đang mã hóa…"
+            ? t("upload.encryptingChunk", { mb: CHUNK_MB })
+            : t("upload.encrypting")
           : stage === "uploading"
             ? isChunkedMode
-              ? "Multipart upload…"
-              : "Đang upload…"
-            : "Mã hóa & Upload"}
+              ? t("upload.multipartUpload")
+              : t("upload.uploading")
+            : uploadPurpose === "vault"
+              ? t("upload.saveVault")
+              : t("upload.encryptUpload")}
       </Button>
 
     </div>
   );
 }
 
-function ChunkProgressBar({ progress }: { progress: ChunkProgress }) {
+function ChunkProgressBar({
+  progress,
+  t,
+}: {
+  progress: ChunkProgress;
+  t: ReturnType<typeof useT>;
+}) {
   const { phase, done, total, currentMB } = progress;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   const isEncrypt = phase === "encrypt";
@@ -426,14 +508,18 @@ function ChunkProgressBar({ progress }: { progress: ChunkProgress }) {
     <Card padding="sm" className="space-y-2">
       <div className={`flex items-center justify-between text-xs ${text.muted}`}>
         <span>
-          {isEncrypt ? "Mã hóa" : "Upload"} chunk {done + (isEncrypt ? 1 : 0)}/{total}
+          {isEncrypt ? t("upload.encryptChunk") : t("upload.uploadChunk")}{" "}
+          {t("upload.chunkProgress", {
+            current: done + (isEncrypt ? 1 : 0),
+            total,
+          })}
           {currentMB > 0 && ` · ${currentMB}MB`}
         </span>
         <span className="font-medium text-indigo-600 dark:text-indigo-400">{pct}%</span>
       </div>
       <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
         <div
-          className={`h-1.5 rounded-full transition-all duration-300 ${isEncrypt ? "bg-amber-500" : "bg-indigo-600 dark:bg-indigo-500"}`}
+          className={`h-1.5 rounded-full transition-all duration-300 ${isEncrypt ? "bg-amber-500" : "bg-blue-700 dark:bg-blue-600"}`}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -442,59 +528,48 @@ function ChunkProgressBar({ progress }: { progress: ChunkProgress }) {
 }
 
 function DoneCard({
-  sasUrl, copied, onCopy, onReset, plaintextChecksum, recipientCount,
+  sasUrl,
+  copied,
+  onCopy,
+  onReset,
+  purpose,
+  t,
 }: {
   sasUrl: string;
   copied: boolean;
   onCopy: () => void;
   onReset: () => void;
-  plaintextChecksum: string;
-  recipientCount: number;
+  purpose: UploadPurpose;
+  t: ReturnType<typeof useT>;
 }) {
-  const [checksumCopied, setChecksumCopied] = useState(false);
-
-  function handleCopyChecksum() {
-    navigator.clipboard.writeText(plaintextChecksum);
-    setChecksumCopied(true);
-    setTimeout(() => setChecksumCopied(false), 2000);
-  }
-
   return (
     <div className="space-y-5">
-      <PageHeader title="Mã hóa & Upload" />
+      <PageHeader title={t("upload.title")} />
 
       <Alert tone="success">
-        <p className="font-medium">Upload thành công</p>
-        <p className={`text-xs mt-1 ${text.muted}`}>
-          File đã mã hóa và lưu trên Azure.
-          {recipientCount > 1 && ` Đã chia sẻ cho ${recipientCount} người nhận.`}
-        </p>
+        {purpose === "vault" ? t("upload.savedVault") : t("upload.success")}
       </Alert>
 
-      {plaintextChecksum && (
-        <Card padding="sm" className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className={label}>SHA-256 checksum</span>
-            <button type="button" onClick={handleCopyChecksum} className={`text-xs ${btn.ghost}`}>
-              {checksumCopied ? "Đã copy" : "Copy"}
-            </button>
+      {purpose === "share" && (
+        <Card className="space-y-3">
+          <label className={label}>{t("upload.sasLink")}</label>
+          <div className="flex gap-2">
+            <input readOnly value={sasUrl} className={`flex-1 text-xs font-mono ${inputBase}`} />
+            <Button variant="secondary" onClick={onCopy}>
+              {copied ? t("common.copied") : t("common.copy")}
+            </Button>
           </div>
-          <p className={`text-xs font-mono break-all ${text.muted}`}>{plaintextChecksum}</p>
         </Card>
       )}
 
-      <Card className="space-y-3">
-        <label className={label}>SAS link chia sẻ</label>
-        <div className="flex gap-2">
-          <input readOnly value={sasUrl} className={`flex-1 text-xs font-mono ${inputBase}`} />
-          <Button variant="secondary" onClick={onCopy}>
-            {copied ? "Đã copy" : "Copy"}
-          </Button>
-        </div>
-      </Card>
+      {purpose === "vault" && (
+        <Link to="/profile">
+          <Button fullWidth>{t("upload.openVaultBtn")}</Button>
+        </Link>
+      )}
 
       <Button variant="secondary" fullWidth onClick={onReset}>
-        Upload file khác
+        {purpose === "vault" ? t("upload.saveAnother") : t("upload.uploadAnotherShort")}
       </Button>
     </div>
   );

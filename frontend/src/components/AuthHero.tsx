@@ -29,7 +29,7 @@ export default function AuthHero({ variant }: { variant: Variant }) {
           </span>
         </h2>
         <div
-          className="h-px w-12 bg-indigo-500/60 dark:bg-indigo-400/50 rounded-full"
+          className="h-px w-10 bg-sky-500/50 dark:bg-sky-400/40"
           aria-hidden
         />
       </div>

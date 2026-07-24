@@ -1,21 +1,23 @@
-import FloatingCryptoIcons, { FLOATING_ICONS_LAYER } from "./FloatingCryptoIcons";
+import FloatingCryptoIcons from "./FloatingCryptoIcons";
+import PageBackground from "./PageBackground";
 import { shell } from "../styles/theme";
 
 /**
- * Nền trái (lớp z-0) · icon bay z-[12] · nội dung z-20.
- * Không tô nền phải ở z-0 — tránh che icon khi trôi sang panel login.
+ * z-0 nền · z-8 icon (dưới UI) · z-20 shell login/register.
  */
 export default function AuthPageLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className={`${shell.auth} relative`}>
+    <div className={`ls-auth ${shell.auth}`}>
+      <PageBackground />
+
       <div
-        className={`hidden lg:block absolute inset-y-0 left-0 lg:w-[42%] xl:w-[38%] z-0 pointer-events-none ${shell.authAsideBg}`}
+        className={`hidden lg:block absolute inset-y-0 left-0 lg:w-[42%] xl:w-[38%] z-[1] pointer-events-none ${shell.authAsideBg}`}
         aria-hidden
       />
 
-      <FloatingCryptoIcons containerClassName={`${FLOATING_ICONS_LAYER} hidden lg:block`} />
+      <FloatingCryptoIcons containerClassName="fixed inset-0 z-[8] pointer-events-none overflow-hidden hidden lg:block" />
 
-      {children}
+      <div className="ls-auth__shell">{children}</div>
     </div>
   );
 }

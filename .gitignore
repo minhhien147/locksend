@@ -23,8 +23,9 @@ __pycache__/
 # Logs
 *.log
 
-# Azure — cấu hình local khi chạy setup (mỗi thành viên tự tạo từ file .example)
-setup-azure.config.ps1
+# Clone riêng repo BE/FE Railway (không commit vào monorepo)
+locksend-be-repo/
+locksend-fe-repo/
 
 # LockSend AI — dataset CIC-IDS2017 rất nặng; model train local / deploy riêng
 locksend-ai/data/*.csv

@@ -1,27 +1,25 @@
-import { useEffect, useRef } from "react";
-import { isKeysUnlocked } from "../utils/crypto";
+import { useEffect } from "react";
+import { isUnlocked } from "../utils/keyVault";
 import { KEY_SYNC_INTERVAL_MS, syncPublicKeysToServer } from "../utils/keySync";
 
 /**
- * Tự động đồng bộ public key lên server mỗi 30 phút khi đã đăng nhập và đã mở khóa key.
+ * Tự động đồng bộ public key lên server khi vault mở khóa và mỗi 30 phút.
  */
 export function useKeySync(enabled: boolean): void {
-  const ranOnce = useRef(false);
-
   useEffect(() => {
     if (!enabled) return;
 
     const run = () => {
-      if (!isKeysUnlocked()) return;
+      if (!isUnlocked()) return;
       void syncPublicKeysToServer();
     };
 
-    if (!ranOnce.current) {
-      ranOnce.current = true;
-      run();
-    }
-
+    run();
+    window.addEventListener("ls-vault-unlocked", run);
     const id = window.setInterval(run, KEY_SYNC_INTERVAL_MS);
-    return () => window.clearInterval(id);
+    return () => {
+      window.removeEventListener("ls-vault-unlocked", run);
+      window.clearInterval(id);
+    };
   }, [enabled]);
 }

@@ -5,9 +5,12 @@ from .models import (
     RefreshToken,
     SasTokenRecord,
     TokenAccessLog,
+    TokenAiScoreSnapshot,
+    TokenSecurityAlert,
     UploadSession,
     User,
     UserPublicKey,
+    UserSecurityAlert,
 )
 
 __all__ = [
@@ -20,4 +23,7 @@ __all__ = [
     "UploadSession",
     "SasTokenRecord",
     "TokenAccessLog",
+    "TokenSecurityAlert",
+    "TokenAiScoreSnapshot",
+    "UserSecurityAlert",
 ]

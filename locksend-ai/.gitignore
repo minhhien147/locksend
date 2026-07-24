@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+
+# Environment secrets
+.env
+.env.local
+
+# Dataset & model (deploy qua Volume / LOCKSEND_AI_MODEL_URL)
+data/**/*.csv
+data/**/*.csv.gz
+data/**/*.csv.gz.*
+data/trustlab_dataset-main/
+models/model.pkl
+
+# Logs
+*.log
+train-full.log
+
+# OS
+.DS_Store
+Thumbs.db
